@@ -1,0 +1,4 @@
+    Waiting for iio-sensor-proxy to appear
++++ iio-sensor-proxy appeared
+
+(monitor-sensor:4242): WARNING **: 11:40:02.123: Failed to claim accelerometer: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: not allowed

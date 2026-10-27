@@ -1,0 +1,78 @@
+Device: /org/freedesktop/UPower/devices/line_power_AC
+  native-path:          AC
+  power supply:         yes
+  updated:              Tue 27 Oct 2026 11:40:01 AM PDT (12 seconds ago)
+  has history:          no
+  has statistics:       no
+  line-power
+    warning-level:       none
+    online:              no
+    icon-name:          'ac-adapter-symbolic'
+
+Device: /org/freedesktop/UPower/devices/battery_BAT0
+  native-path:          BAT0
+  vendor:               SMP
+  model:                5B10W13975
+  power supply:         yes
+  updated:              Tue 27 Oct 2026 11:40:01 AM PDT (12 seconds ago)
+  has history:          yes
+  has statistics:       yes
+  battery
+    present:             yes
+    rechargeable:        yes
+    state:               discharging
+    warning-level:       none
+    energy:              43.12 Wh
+    energy-empty:        0 Wh
+    energy-full:         50.73 Wh
+    energy-full-design:  57 Wh
+    energy-rate:         12.402 W
+    voltage:             16.9 V
+    charge-cycles:       41
+    time to full:        36.6 minutes
+    percentage:          84%
+    capacity:            89%
+    technology:          lithium-polymer
+    icon-name:          'battery-full-charging-symbolic'
+  History (charge):
+    1793212801	85.000	charging
+  History (rate):
+    1793212801	12.402	charging
+
+Device: /org/freedesktop/UPower/devices/mouse_hidpp_battery_0
+  native-path:          hidpp_battery_0
+  model:                MX Master 3
+  power supply:         no
+  updated:              Tue 27 Oct 2026 11:39:40 AM PDT (33 seconds ago)
+  has history:          yes
+  has statistics:       yes
+  mouse
+    present:             yes
+    rechargeable:        yes
+    state:               discharging
+    warning-level:       none
+    percentage:          55%
+    icon-name:          'battery-good-symbolic'
+
+Device: /org/freedesktop/UPower/devices/DisplayDevice
+  power supply:         yes
+  updated:              Tue 27 Oct 2026 11:40:01 AM PDT (12 seconds ago)
+  has history:          no
+  has statistics:       no
+  battery
+    present:             yes
+    state:               discharging
+    warning-level:       none
+    energy:              43.12 Wh
+    energy-full:         50.73 Wh
+    energy-rate:         12.402 W
+    time to full:        36.6 minutes
+    percentage:          84%
+    icon-name:          'battery-full-charging-symbolic'
+
+Daemon:
+  daemon-version:  1.90.4
+  on-battery:      yes
+  lid-is-closed:   no
+  lid-is-present:  yes
+  critical-action: HybridSleep

@@ -1,0 +1,3 @@
+    Accelerometer orientation changed: left-up
+    Tilt changed: tilted-down
+    Accelerometer orientation changed: bottom-up

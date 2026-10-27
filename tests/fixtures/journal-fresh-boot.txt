@@ -1,0 +1,4 @@
+[    0.000000] testbook kernel: Linux version 7.2.7-1-MANJARO (builduser@manjaro) (gcc (GCC) 15.2.1) #1 SMP PREEMPT_DYNAMIC
+[    0.412345] testbook kernel: PM: Registering ACPI NVS region [mem 0x7a5a1000-0x7a7fefff] (2482176 bytes)
+[    1.234567] testbook kernel: PM: hibernation: Image not found (code -22)
+[    1.300000] testbook kernel: usb 1-1: new high-speed USB device number 2 using xhci_hcd

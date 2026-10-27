@@ -1,0 +1,2 @@
+Device 38:18:4C:00:00:02 WH-1000XM4
+Device D4:2F:00:00:00:03 MX Master 3

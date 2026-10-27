@@ -1,0 +1,17 @@
+Controller 8C:F8:C5:00:00:01 (public)
+	Manufacturer: 0x0002 (2)
+	Version: 0x0d (13)
+	Name: testbook
+	Alias: testbook
+	Class: 0x007c010c (8126732)
+	Powered: no
+	PowerState: off
+	Discoverable: no
+	DiscoverableTimeout: 0x000000b4 (180)
+	Pairable: yes
+	UUID: Generic Attribute Profile (00001801-0000-1000-8000-00805f9b34fb)
+	UUID: Audio Source              (0000110a-0000-1000-8000-00805f9b34fb)
+	Modalias: usb:v1D6Bp0246d0548
+	Discovering: no
+	Roles: central
+	Roles: peripheral

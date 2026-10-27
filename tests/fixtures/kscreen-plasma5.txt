@@ -1,0 +1,2 @@
+Output: 65 eDP-1 enabled connected priority 1 Panel Modes: 66:1920x1080@60*! 67:1680x1050@60 Geometry: 0,0 1920x1080 Scale: 1 Rotation: 1 Overscan: 0 Vrr: incapable RgbRange: unknown
+Output: 71 HDMI-1 enabled connected priority 2 HDMI Modes: 72:2560x1440@59.95*! 73:1920x1080@60 Geometry: 1920,0 2560x1440 Scale: 1 Rotation: 1 Overscan: 0 Vrr: incapable RgbRange: unknown

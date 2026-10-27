@@ -1,0 +1,12 @@
+[    0.000000] testbook kernel: Linux version 7.2.7-1-MANJARO (builduser@manjaro) (gcc (GCC) 15.2.1) #1 SMP PREEMPT_DYNAMIC
+[    0.412345] testbook kernel: PM: Registering ACPI NVS region [mem 0x7a5a1000-0x7a7fefff] (2482176 bytes)
+[ 1234.567890] testbook kernel: PM: hibernation: hibernation entry
+[ 1235.001234] testbook kernel: PM: hibernation: Preallocating image memory
+[ 1236.789012] testbook kernel: PM: hibernation: Allocated 812345 pages for snapshot
+[ 1236.900000] testbook kernel: PM: hibernation: Creating image:
+[ 1237.100000] testbook kernel: PM: Image restored successfully.
+[ 1237.200000] testbook kernel: PM: hibernation: Basic memory bitmaps freed
+[ 1237.300000] testbook kernel: OOM killer enabled.
+[ 1237.400000] testbook kernel: Restarting tasks ... done.
+[ 1237.500000] testbook kernel: PM: hibernation: hibernation exit
+[ 1237.600000] testbook kernel: usb 3-3: new full-speed USB device number 5 using xhci_hcd

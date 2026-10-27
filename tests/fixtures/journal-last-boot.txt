@@ -1,0 +1,6 @@
+[ 2000.000000] testbook kernel: PM: hibernation: hibernation entry
+[ 2001.000000] testbook kernel: PM: hibernation: Preallocating image memory
+[ 2003.000000] testbook kernel: PM: hibernation: Creating image:
+[ 2004.000000] testbook kernel: PM: Cannot find swap device, try swapon -a
+[ 2004.100000] testbook kernel: PM: hibernation: Basic memory bitmaps freed
+[ 2004.200000] testbook kernel: Restarting tasks ... done.

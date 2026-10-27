@@ -1,0 +1,30 @@
+[01;32mOutput: [0;0m1 eDP-1 9f5c1e2a-31aa-4c0e-9d7e-0a1b2c3d4e5f
+	[01;32menabled[0;0m
+	[01;32mconnected[0;0m
+	[01;32mpriority 1[0;0m
+	[01;33mPanel[0;0m
+	[01;33mreplication source:[0;0m0
+	[01;34mModes: [0;0m 0:[01;32m2880x1800@120.00*[0;0m!  1:2880x1800@60.00  2:1920x1200@60.00 
+[01;33m	Custom modes:[0;0m None
+[01;33m	Geometry: [0;0m0,0 1440x900
+[01;33m	Scale: [0;0m2
+[01;33m	Rotation: [0;0m1
+[01;33m	Overscan: [0;0m0
+[01;33m	Vrr: [0;0mincapable
+[01;33m	RgbRange: [0;0munknown
+[01;33m	HDR: [0;0mincapable
+[01;32mOutput: [0;0m3 DP-1 5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d
+	[01;31mdisabled[0;0m
+	[01;31mdisconnected[0;0m
+	[01;32mpriority 0[0;0m
+	[01;33mDisplayPort[0;0m
+	[01;33mreplication source:[0;0m0
+	[01;34mModes: [0;0m
+[01;33m	Custom modes:[0;0m None
+[01;33m	Geometry: [0;0m0,0 0x0
+[01;33m	Scale: [0;0m1
+[01;33m	Rotation: [0;0m1
+[01;33m	Overscan: [0;0m0
+[01;33m	Vrr: [0;0mincapable
+[01;33m	RgbRange: [0;0munknown
+[01;33m	HDR: [0;0mincapable
