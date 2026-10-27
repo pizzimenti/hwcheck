@@ -60,7 +60,9 @@ Each version's heading says whether it was a major, minor or patch change.
   preset check can be answered again only as doesn't work or skip, and keeps
   its evidence).
 - State and results are written atomically to `~/.local/state/hwcheck/` after
-  every answer; an unfinished run must be resumed or explicitly replaced
+  every answer, and never once the run has finished or begun to stop (the
+  hibernate thread included), so nothing lands after the directory's lock is
+  given up; an unfinished run must be resumed or explicitly replaced
   (`--new`), and earlier runs are kept, renamed.
 - The plan and results formats, a sample plan for a 2-in-1 and its results,
   in the README and `examples/`.

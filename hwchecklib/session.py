@@ -267,9 +267,16 @@ class Session:
             return {"source": "page", **observed}
         return None
 
+    def _open(self) -> bool:
+        """call with the lock held: may this run still change what's on disk?"""
+        return not self.stopping.is_set() and not self.state["finished"]
+
     def _changed(self, save: bool) -> None:
         """call with the lock held."""
         if save:
+            if self.stopping.is_set():
+                # hwcheck is ending and may already be giving up its lock: nothing more is written
+                raise SessionError("hwcheck is stopping; nothing more can be saved", 503)
             self.state["updated"] = self.now()
             self._save()
         self.version += 1
@@ -405,6 +412,8 @@ class Session:
             return self.snapshot()
 
     def _guard_current(self, check_id) -> dict:
+        if self.stopping.is_set():
+            raise SessionError("hwcheck is stopping", 503)
         if self.state["finished"]:
             raise SessionError("this run is finished", 409)
         check = self._check(check_id)
@@ -424,6 +433,8 @@ class Session:
 
     def select(self, check_id) -> dict:
         with self.lock:
+            if self.stopping.is_set():
+                raise SessionError("hwcheck is stopping", 503)
             if self.state["finished"]:
                 raise SessionError("this run is finished", 409)
             check = self._check(check_id)
@@ -441,6 +452,8 @@ class Session:
 
     def start_hibernate(self) -> dict:
         with self.lock:
+            if self.stopping.is_set():
+                raise SessionError("hwcheck is stopping", 503)
             if self.state["finished"]:
                 raise SessionError("this run is finished", 409)
             cur = self._check(self.state["current"], missing_ok=True)
@@ -457,21 +470,28 @@ class Session:
             self._changed(save=True)  # on disk before the machine goes down
             return self.snapshot()
 
+    def launch_hibernate(self, delay: float = 1.0) -> None:
+        """run the hibernate in its own thread, once the page has shown 'hibernating'."""
+        self._hibernate_thread = threading.Thread(target=self.run_hibernate, args=(delay,),
+                                                  name="hwcheck-hibernate", daemon=True)
+        self._hibernate_thread.start()
+
+    def join_background(self, timeout: float = 2.0) -> None:
+        """after stop(): wait a little for the hibernate thread (systemctl may still be running).
+        whatever it does after this, it writes nothing: stop() closed every save path."""
+        t = getattr(self, "_hibernate_thread", None)
+        if t is not None and t.is_alive():
+            t.join(timeout)
+
     def run_hibernate(self, delay: float = 1.0) -> None:
-        """called in its own thread after start_hibernate, once the page has shown 'hibernating'."""
         if self.stopping.wait(delay):
-            with self.lock:
-                hib = self.state["hibernate"]
-                hid = self._hibernate_id()
-                # a run that ended because hibernate was answered in the delay is finished: leave it be
-                if hib["phase"] == "pending" and not self.state["finished"] and not (hid and self._answered(hid)):
-                    hib.update(phase="failed", error="hwcheck stopped before hibernating")
-                    self._changed(save=True)
+            # hwcheck is ending: never hibernate now, and write nothing. the state says pending;
+            # --resume sees the machine never slept and offers to try again.
             return
         with self.lock:
             # the person may have answered (and finished the run) during the delay
             hid = self._hibernate_id()
-            if (self.state["finished"] or self.state["hibernate"]["phase"] != "pending"
+            if (not self._open() or self.state["hibernate"]["phase"] != "pending"
                     or (hid and self._answered(hid))):
                 return
         try:
@@ -480,8 +500,10 @@ class Session:
             ok, message = False, f"hibernate failed: {exc}"
         with self.lock:
             hib = self.state["hibernate"]
-            if hib["phase"] != "pending":
-                return  # the resume was already seen
+            # while systemctl ran, the person may have answered (finishing the run), hwcheck may
+            # be stopping, or the resume may already have been seen: then write nothing
+            if not self._open() or (hid and self._answered(hid)) or hib["phase"] != "pending":
+                return
             if ok:
                 hib["phase"] = "hibernating"
             else:
@@ -532,7 +554,7 @@ class Session:
         log = self.readers.kernel_log("0")
         with self.lock:
             hib = self.state["hibernate"]
-            if hib["phase"] not in ("pending", "hibernating"):
+            if not self._open() or hib["phase"] not in ("pending", "hibernating"):
                 return
             hib.update(phase="resumed", boot_id_after=boot, slept_seconds=round(gap),
                        resumed_at=self.now(), kernel_log={"this_boot": log})
@@ -551,6 +573,8 @@ class Session:
             self.readers.release()
 
     def stop(self) -> None:
+        """end the run's writing. taking the lock after setting the flag waits out a save in
+        progress; every save after it sees the flag under the lock and writes nothing."""
         self.stopping.set()
         self.wake.set()
         with self.cond:

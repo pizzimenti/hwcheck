@@ -14,7 +14,10 @@ import threading
 import unittest
 
 from hwchecklib.cli import main
-from hwchecklib.plan import load_plan
+from hwchecklib.plan import load_plan, parse_plan
+from hwchecklib.server import Server, serve
+from hwchecklib.session import Session
+from hwchecklib.store import Store
 
 from .fakes import (BOOT_A, BOOT_B, EXAMPLE_PLAN, ROOT, FakeClock, FakeHibernate, FakeMachine, fake_readers,
                     scratch_dir, wait_for)
@@ -436,9 +439,10 @@ class ResumeFromTheCommandLine(unittest.TestCase):
         status, s = run.post("/api/hibernate", {})
         self.assertEqual(status, 200)
         self.assertEqual(run.wait(), 143)
-        wait_for(lambda: run.session.state["hibernate"]["phase"] == "hibernating")
+        # the machine went down while systemctl ran: what's on disk is what the press saved
         saved = json.loads((d / "state" / "state.json").read_text())
-        self.assertIn(saved["hibernate"]["phase"], ("pending", "hibernating"))
+        self.assertEqual(saved["hibernate"]["phase"], "pending")
+        self.assertEqual(hibernate.calls, 1)
         return plan, readers, run.clock
 
     def test_same_boot_resume(self):
@@ -670,3 +674,23 @@ class TwoInstances(unittest.TestCase):
         run = Run(self, write_plan(d, MANUAL2), d / "state", args=["--timeout", "0.1"])
         self.assertEqual(run.wait(), 3)
         self.assertEqual((d / "state" / "lock").read_text().strip(), str(os.getpid()))
+
+
+class ServeOrder(unittest.TestCase):
+    def test_the_timeout_counts_from_before_anything_is_served(self):
+        d = scratch_dir(self)
+        store = Store(d / "state")
+        session = Session.new(parse_plan(MANUAL2), "plan", store, fake_readers())
+        server = Server(session, 0)
+        web_thread = f"hwcheck-http-{server.port}"
+        first_call = {}
+
+        def clock():
+            if not first_call:  # the reading the timeout counts from
+                first_call["threads"] = [t.name for t in threading.enumerate()]
+                return 0.0
+            return 5.0  # then at once: five seconds on
+
+        outcome = serve(session, server, timeout=5, grace=0, poll_interval=0.02, clock=clock)
+        self.assertEqual(outcome, "timeout")
+        self.assertNotIn(web_thread, first_call["threads"])  # nothing could be answered before it

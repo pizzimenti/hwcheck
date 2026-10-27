@@ -90,8 +90,12 @@ class Store:
         except BaseException:
             os.close(fd)
             raise
-        os.ftruncate(fd, 0)
-        os.pwrite(fd, f"{os.getpid()}\n".encode("ascii"), 0)
+        try:
+            os.ftruncate(fd, 0)
+            os.pwrite(fd, f"{os.getpid()}\n".encode("ascii"), 0)
+        except BaseException:  # a full disk, say: give the lock back rather than leak it
+            os.close(fd)
+            raise
         self._lock_fd = fd
 
     def unlock(self) -> None:

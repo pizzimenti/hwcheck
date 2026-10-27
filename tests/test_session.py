@@ -1,4 +1,5 @@
 import json
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -224,6 +225,28 @@ class Hibernate(unittest.TestCase):
         self.assertEqual(h.hibernate.calls, 0)
         self.assertEqual(h.store.state_path.read_bytes(), before)  # nothing written after the end
 
+    def test_an_answer_while_systemctl_runs_ends_the_writing(self):
+        for ok in (True, False):  # systemctl coming back fine, or with an error
+            with self.subTest(systemctl_ok=ok):
+                h = self.ready(hibernate=FakeHibernate(ok, "" if ok else "Call to Hibernate failed"))
+                seen = {}
+
+                def the_person_answers():  # while systemctl hibernate is still running
+                    h.session.answer("hibernate", "skip", "changed my mind")
+                    seen["state"] = h.store.state_path.read_bytes()
+                    seen["results"] = h.store.results_path.read_bytes()
+
+                h.hibernate.then = the_person_answers
+                h.session.start_hibernate()
+                h.session.run_hibernate(0)
+                self.assertEqual(h.hibernate.calls, 1)
+                self.assertTrue(h.session.finished.is_set())
+                # the finished run's files are as the answer left them: no "hibernating", no "failed"
+                self.assertEqual(h.store.state_path.read_bytes(), seen["state"])
+                self.assertEqual(h.store.results_path.read_bytes(), seen["results"])
+                self.assertEqual(h.saved_state()["hibernate"]["phase"], "pending")
+                self.assertEqual(h.by_id()["hibernate"]["answer"], "skip")
+
     def test_the_sleep_mark_is_saved_at_the_press(self):
         h = self.ready()
         h.clock.value = 7.5
@@ -279,10 +302,13 @@ class Hibernate(unittest.TestCase):
     def test_stopping_before_the_action_runs_never_hibernates(self):
         h = self.ready()
         h.session.start_hibernate()
+        before = h.store.state_path.read_bytes()
         h.session.stop()
         h.session.run_hibernate(5)
         self.assertEqual(h.hibernate.calls, 0)
-        self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "failed")
+        # nothing written once stopping: the press's "pending" stays, and --resume sees no sleep
+        self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "pending")
+        self.assertEqual(h.store.state_path.read_bytes(), before)
 
     def test_a_skipped_hibernate_never_starts(self):
         h = Harness(self, [MANUAL[0], dict(HIB, preset={"answer": "skip", "note": "not enough swap to hibernate"})])
@@ -321,6 +347,59 @@ class Presets(unittest.TestCase):
         miss = h.by_id()["missing-pen"]
         self.assertEqual((miss["answer"], miss["note"]), ("skip", "this unit came without the pen"))
         self.assertEqual(miss["live"], {"source": "preset", "evidence": "expected but not detected: pen WACF2200"})
+
+
+class Stopping(unittest.TestCase):
+    """once stop() has run, nothing is written: hwcheck may already be giving up its lock."""
+
+    def files(self, h):
+        return h.store.state_path.read_bytes(), h.store.results_path.read_bytes()
+
+    def test_requests_are_refused(self):
+        h = Harness(self, [*MANUAL, HIB])
+        h.session.answer("a", "works")
+        before = self.files(h)
+        h.session.stop()
+        for call in (lambda: h.session.answer("b", "works"), lambda: h.session.select("c"),
+                     h.session.start_hibernate):
+            with self.assertRaises(SessionError) as ctx:
+                call()
+            self.assertEqual(ctx.exception.status, 503)
+        self.assertEqual(self.files(h), before)
+
+    def test_a_resume_seen_after_stopping_is_not_written(self):
+        h = Harness(self, [MANUAL[0], HIB])
+        h.session.answer("a", "works")
+        h.session.start_hibernate()
+        h.session.run_hibernate(0)
+        before = self.files(h)
+        h.session.stop()
+        h.clock.value += 30  # it slept; the poller would notice
+        h.session.poll_once()
+        self.assertEqual(self.files(h), before)
+
+    def test_the_hibernate_thread_is_joined_with_a_bound_and_writes_nothing_after(self):
+        h = Harness(self, [MANUAL[0], HIB])
+        h.session.answer("a", "works")
+        in_systemctl, let_go = threading.Event(), threading.Event()
+
+        def slow_systemctl():
+            in_systemctl.set()
+            let_go.wait(10)
+            return True, ""
+
+        h.session.hibernate_action = slow_systemctl
+        h.session.start_hibernate()
+        h.session.launch_hibernate(0)
+        self.assertTrue(in_systemctl.wait(10))
+        before = self.files(h)
+        h.session.stop()
+        h.session.join_background(0.05)  # bounded: systemctl is still running
+        self.assertTrue(h.session._hibernate_thread.is_alive())
+        let_go.set()
+        h.session._hibernate_thread.join(10)
+        self.assertFalse(h.session._hibernate_thread.is_alive())
+        self.assertEqual(self.files(h), before)
 
 
 class Resume(unittest.TestCase):

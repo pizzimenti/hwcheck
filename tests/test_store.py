@@ -59,6 +59,31 @@ class StoreFiles(unittest.TestCase):
         moved = store.archive("20261027T113000")
         self.assertIn("state-20261027T113000-2.json", [p.name for p in moved])
 
+    def test_a_failed_pid_write_gives_the_lock_back(self):
+        for failing in ("pwrite", "ftruncate"):
+            with self.subTest(failing=failing):
+                store = Store(scratch_dir(self))
+
+                def lock_fds():
+                    fds = []
+                    for fd in os.listdir("/proc/self/fd"):
+                        try:
+                            if os.readlink(f"/proc/self/fd/{fd}") == str(store.lock_path):
+                                fds.append(fd)
+                        except OSError:
+                            pass
+                    return fds
+
+                with mock.patch(f"hwchecklib.store.os.{failing}",
+                                side_effect=OSError(28, "No space left on device")):
+                    with self.assertRaises(OSError):
+                        store.lock()
+                self.assertEqual(lock_fds(), [])  # not leaked
+                store.lock()  # and the lock was given back: it can be taken again
+                self.assertEqual(len(lock_fds()), 1)
+                store.unlock()
+                self.assertEqual(lock_fds(), [])
+
     def test_corrupt_state(self):
         d = scratch_dir(self)
         store = Store(d)

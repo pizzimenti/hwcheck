@@ -178,8 +178,7 @@ class Handler(BaseHTTPRequestHandler):
                 snap = session.select(body.get("id"))
             elif path == "/api/hibernate":
                 snap = session.start_hibernate()
-                threading.Thread(target=session.run_hibernate, args=(self.server.hibernate_delay,),
-                                 name="hwcheck-hibernate", daemon=True).start()
+                session.launch_hibernate(self.server.hibernate_delay)
             else:
                 return self._error(404, "not found")
         except SessionError as exc:
@@ -194,13 +193,14 @@ def serve(session, server: Server, timeout: float | None = None, grace: float = 
     returns "finished", "timeout", "stopped" or "interrupted". monotonic time doesn't
     advance while the machine sleeps, so hibernating doesn't eat into the timeout.
     """
+    # the timeout counts from before anything is served, so no answer can come in ahead of it
+    started = clock()
     web = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.2},
-                           name="hwcheck-http", daemon=True)
+                           name=f"hwcheck-http-{server.port}", daemon=True)
     poller = threading.Thread(target=session.poll_loop, args=(poll_interval,),
-                              name="hwcheck-poll", daemon=True)
+                              name=f"hwcheck-poll-{server.port}", daemon=True)
     web.start()
     poller.start()
-    started = clock()
     outcome = "stopped"
     try:
         while True:
@@ -218,10 +218,11 @@ def serve(session, server: Server, timeout: float | None = None, grace: float = 
     except KeyboardInterrupt:
         outcome = "interrupted"
     finally:
-        session.stop()
+        session.stop()  # from here nothing is written: all before the caller gives up its lock
         server.shutdown()
-        server.server_close()
+        server.server_close()  # joins the request threads
         poller.join(5)
         web.join(5)
+        session.join_background(2.0)
         session.readers.release()
     return outcome
