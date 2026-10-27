@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hwcheck</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>hwcheck</h1>
+  <p id="machine"></p>
+  <p id="progress" role="status"></p>
+</header>
+<main id="run">
+  <nav aria-label="checks">
+    <ol id="check-list"></ol>
+  </nav>
+  <section id="check" aria-live="polite">
+    <p class="where" id="check-where"></p>
+    <h2 id="check-title">loading…</h2>
+    <p id="check-instructions"></p>
+    <p id="check-expect"></p>
+    <div id="test"></div>
+    <div id="answer">
+      <label for="note">note (what you saw, anything odd)</label>
+      <textarea id="note" rows="3" maxlength="2000"></textarea>
+      <div class="buttons">
+        <button type="button" id="btn-works" class="works">works</button>
+        <button type="button" id="btn-doesnt-work" class="doesnt-work">doesn't work</button>
+        <button type="button" id="btn-skip" class="skip">skip</button>
+      </div>
+      <p id="answer-msg" role="alert"></p>
+    </div>
+  </section>
+</main>
+<section id="done" hidden>
+  <h2>all checks answered</h2>
+  <p id="done-counts"></p>
+  <p>results saved to <code id="done-path"></code>. hwcheck has stopped; you can close this page.</p>
+</section>
+<footer><p id="conn" role="status"></p></footer>
+</body>
+</html>

@@ -1,0 +1,116 @@
+{
+  "checks": [
+    {
+      "id": "speakers",
+      "title": "speakers",
+      "kind": "speakers",
+      "instructions": "turn the volume to about half, then play the left, right and both tones.",
+      "expect": "left only from the left speaker, right only from the right, both from both, with no crackle"
+    },
+    {
+      "id": "microphone",
+      "title": "microphone",
+      "kind": "microphone",
+      "instructions": "start the microphone and speak, then record 3 s and listen to it played back.",
+      "expect": "the bar moves when you speak and the recording is clear"
+    },
+    {
+      "id": "headphones",
+      "title": "headphone jack",
+      "kind": "headphones",
+      "instructions": "plug wired headphones into the jack and play the tones again.",
+      "expect": "the sound moves to the headphones when they're plugged in and back to the speakers when they're not"
+    },
+    {
+      "id": "camera",
+      "title": "camera",
+      "kind": "camera",
+      "instructions": "start the camera. if there is a second camera, switch to it too.",
+      "expect": "a live, clear picture from each camera"
+    },
+    {
+      "id": "touch",
+      "title": "touchscreen",
+      "kind": "touch",
+      "instructions": "drag the box to the target with a finger, then rest several fingers on the grey area.",
+      "expect": "the box follows your finger and at least 5 touches are counted"
+    },
+    {
+      "id": "pen",
+      "title": "pen",
+      "kind": "pen",
+      "instructions": "draw on the pad with the pen, lightly and then hard, and tilt it.",
+      "expect": "lines get thicker as you press harder and the tilt numbers change"
+    },
+    {
+      "id": "keys",
+      "title": "keyboard",
+      "kind": "keys",
+      "instructions": "press every key, including the function row and the arrows. try the volume and brightness keys too.",
+      "expect": "every key shows up; volume and brightness change on screen"
+    },
+    {
+      "id": "touchpad",
+      "title": "touchpad",
+      "kind": "manual",
+      "instructions": "move the pointer, tap to click, scroll with two fingers and right-click.",
+      "expect": "all of it works smoothly"
+    },
+    {
+      "id": "tablet-mode",
+      "title": "tablet mode",
+      "kind": "tablet-mode",
+      "instructions": "fold the screen all the way back into tablet mode, then open it back to a laptop.",
+      "expect": "tablet mode turns on when folded and off when opened; the keyboard stops typing while folded"
+    },
+    {
+      "id": "rotation",
+      "title": "screen rotation",
+      "kind": "rotation",
+      "instructions": "in tablet mode, turn the machine onto each side and upside down.",
+      "expect": "the orientation follows the machine and the screen turns with it"
+    },
+    {
+      "id": "power",
+      "title": "charger",
+      "kind": "power",
+      "instructions": "unplug the charger, wait a few seconds, then plug it back in.",
+      "expect": "it goes on battery when unplugged and back to mains, charging, when plugged in"
+    },
+    {
+      "id": "lid",
+      "title": "lid",
+      "kind": "lid",
+      "instructions": "close the lid for a few seconds, then open it. if the machine sleeps, wake it.",
+      "expect": "the lid is seen closed then open, and the screen comes back"
+    },
+    {
+      "id": "external-display",
+      "title": "external display",
+      "kind": "external-display",
+      "instructions": "plug in an external display (usb-c or hdmi).",
+      "expect": "the display is seen as connected and shows a picture"
+    },
+    {
+      "id": "bluetooth",
+      "title": "bluetooth",
+      "kind": "bluetooth",
+      "instructions": "connect a bluetooth device (headphones or a mouse) from the system's bluetooth settings.",
+      "expect": "the device shows as connected and works"
+    },
+    {
+      "id": "wifi",
+      "title": "wifi",
+      "kind": "manual",
+      "instructions": "look at the network icon in the panel.",
+      "expect": "wifi is connected with a good signal"
+    },
+    {
+      "id": "hibernate",
+      "title": "hibernate",
+      "kind": "hibernate",
+      "instructions": "this runs last. the machine hibernates and powers off; turn it back on with the power button.",
+      "expect": "it comes back where it left off, with this page still open"
+    }
+  ]
+}
