@@ -465,6 +465,26 @@ class ResumeFromTheCommandLine(unittest.TestCase):
         self.assertEqual(hib["live"]["slept_seconds"], 55)
         self.assertEqual(hib["live"]["boot_id_before"], hib["live"]["boot_id_after"])
 
+    def test_stopped_in_the_delay_then_suspended_overnight_is_not_a_resume(self):
+        d = scratch_dir(self)
+        plan = write_plan(d, WITH_HIB)
+        readers = fake_readers()
+        clock = FakeClock(0.0)
+        run = Run(self, plan, d / "state", readers=readers, clock=clock, hibernate_delay=3600)
+        run.post("/api/answer", {"id": "a", "answer": "works", "note": "fine"})
+        status, s = run.post("/api/hibernate", {})
+        self.assertEqual((status, s["hibernate"]["phase"]), (200, "pending"))
+        run.session.stop()  # hwcheck stopped within the delay
+        self.assertEqual(run.wait(), 143)
+        self.assertEqual(run.hibernate.calls, 0)
+        clock.value += 8 * 3600  # then the laptop was suspended overnight, in the same boot
+        again = Run(self, plan, d / "state", readers=readers, args=["--resume"], clock=clock)
+        state = again.get()
+        self.assertEqual((state["current"], state["hibernate"]["phase"]), ("hibernate", "failed"))
+        self.assertIn("never ran", state["hibernate"]["error"])
+        status, body = again.post("/api/answer", {"id": "hibernate", "answer": "works", "note": "?"})
+        self.assertEqual(status, 409)
+
     def test_same_boot_without_a_sleep_is_not_a_resume(self):
         d = scratch_dir(self)
         plan, readers, clock = self.go_down_while_hibernating(d)

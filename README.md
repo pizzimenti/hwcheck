@@ -188,8 +188,12 @@ which is the easiest way to write one.
 hibernate runs last. pressing "hibernate now" saves `hibernate pending`, the
 boot id (`/proc/sys/kernel/random/boot_id`) and how long the machine has slept
 since boot to disk, then runs `systemctl hibernate` a second later (not at all
-if the person answers in that second). `systemctl` returns as soon as the job
-is queued, so until a sleep has actually been seen the answer can only be
+if the person answers in that second). right before it runs `systemctl`, it
+saves one more mark, `action_started`: a pending hibernate without that mark
+never ran, whatever ended hwcheck in that second (a stop, a crash, or power
+lost), and whatever the machine did afterwards (a suspend overnight, say), so
+it is never taken for a resume. `systemctl` returns as soon as the job is
+queued, so until a sleep has actually been seen the answer can only be
 doesn't work or skip.
 
 - **it resumes.** the server and the page come back with everything else. the
@@ -199,6 +203,9 @@ doesn't work or skip.
 - **it boots fresh.** start it again with `--resume`. a new boot id means the
   hibernate image wasn't restored: the check is recorded as doesn't work at
   once, and the page asks the person for a note on what they saw.
+- **hwcheck ended before `systemctl` ran** (stopped, crashed or cut off in that
+  second): `--resume` finds no `action_started` mark, records that hibernate
+  never ran, and offers to try again, whatever the boot id or the time asleep.
 - **the server was stopped but the machine didn't reboot.** `--resume` sees the
   same boot id and compares the time asleep with what was saved at the press:
   if the machine slept, it asks whether everything came back; if it didn't,
@@ -287,7 +294,7 @@ every check in the plan is listed, in plan order. `live` depends on the kind
   during the check with its time.
 - **hibernate**: `phase` (`resumed`, `fresh-boot`, `failed`, `unknown`,
   `hibernating`, `idle`), `resumed`, `boot_id_before`, `boot_id_after`,
-  `hibernated_at`, `slept_seconds`, `error` and `kernel_log`.
+  `hibernated_at`, `action_started`, `slept_seconds`, `error` and `kernel_log`.
 
 ## a sample plan for a 2-in-1
 

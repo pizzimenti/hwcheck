@@ -220,7 +220,10 @@ def serve(session, server: Server, timeout: float | None = None, grace: float = 
     finally:
         session.stop()  # from here nothing is written: all before the caller gives up its lock
         server.shutdown()
-        server.server_close()  # joins the request threads
+        # the request threads are daemon threads and server_close() joins none of them; a request
+        # still running can't write after this point because stop() set the stopping flag
+        # under the session lock, and every save checks that flag under the same lock
+        server.server_close()
         poller.join(5)
         web.join(5)
         session.join_background(2.0)

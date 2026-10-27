@@ -247,6 +247,25 @@ class Hibernate(unittest.TestCase):
                 self.assertEqual(h.saved_state()["hibernate"]["phase"], "pending")
                 self.assertEqual(h.by_id()["hibernate"]["answer"], "skip")
 
+    def test_the_action_marker_is_on_disk_before_systemctl_runs(self):
+        h = self.ready()
+        on_disk = {}
+        h.hibernate.then = lambda: on_disk.update(h.saved_state()["hibernate"])
+        h.session.start_hibernate()
+        self.assertIsNone(h.saved_state()["hibernate"]["action_started"])  # not at the press
+        h.session.run_hibernate(0)
+        self.assertEqual(on_disk["phase"], "pending")
+        self.assertTrue(on_disk["action_started"])
+
+    def test_a_suspend_in_the_delay_is_not_a_hibernate(self):
+        h = self.ready()
+        h.session.start_hibernate()  # the delay: systemctl not yet called
+        h.clock.value += 30  # the lid closed and the machine suspended, say
+        h.session.poll_once()
+        self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "pending")
+        with self.assertRaises(SessionError):
+            h.session.answer("hibernate", "works")
+
     def test_the_sleep_mark_is_saved_at_the_press(self):
         h = self.ready()
         h.clock.value = 7.5
@@ -402,6 +421,61 @@ class Stopping(unittest.TestCase):
         self.assertEqual(self.files(h), before)
 
 
+class SavedOrUndone(unittest.TestCase):
+    """an answer is saved, or memory is put back: never one without the other."""
+
+    def test_a_stop_between_the_check_and_the_save_undoes_the_answer(self):
+        h = Harness(self, [*MANUAL, HIB])
+        h.session.answer("a", "works", "kept")
+        disk = h.results()
+        real_now = h.session.now
+        armed = {"on": False}
+
+        def now_and_maybe_stop():
+            if armed["on"]:  # in the middle of recording the answer, hwcheck is told to stop
+                armed["on"] = False
+                h.session.stop()
+            return real_now()
+
+        h.session.now = now_and_maybe_stop
+        armed["on"] = True
+        with self.assertRaises(SessionError) as ctx:
+            h.session.answer("b", "works", "never saved")
+        self.assertEqual(ctx.exception.status, 503)
+        self.assertFalse(armed["on"])  # the stop really came mid-answer
+        self.assertEqual(h.results(), disk)  # nothing on disk
+        self.assertEqual(h.session.results(), disk)  # and memory agrees with it
+        snap = h.session.snapshot()
+        self.assertEqual((snap["current"], snap["counts"]["left"], snap["counts"]["works"]), ("b", 3, 1))
+
+    def test_a_failed_save_undoes_the_answer_and_the_next_one_works(self):
+        h = Harness(self, MANUAL)
+        real_save = h.store.save
+
+        def disk_full(state, results):
+            raise OSError(28, "No space left on device")
+
+        h.store.save = disk_full
+        with self.assertRaises(SessionError) as ctx:
+            h.session.answer("a", "doesnt-work", "lost")
+        self.assertEqual(ctx.exception.status, 500)
+        self.assertEqual(h.session.snapshot()["current"], "a")
+        self.assertIsNone(h.session.results()["checks"][0]["answer"])
+        h.store.save = real_save  # space freed
+        h.session.answer("a", "works", "saved")
+        self.assertEqual((h.by_id()["a"]["answer"], h.by_id()["a"]["note"]), ("works", "saved"))
+
+    def test_a_refused_select_or_hibernate_changes_nothing(self):
+        h = Harness(self, [MANUAL[0], HIB])
+        h.session.answer("a", "works")
+        before = h.session.results(), h.session.snapshot()["hibernate"], h.session.state["current"]
+        h.session.store.save = lambda state, results: (_ for _ in ()).throw(OSError(5, "I/O error"))
+        with self.assertRaises(SessionError):
+            h.session.start_hibernate()
+        self.assertEqual((h.session.results(), h.session.snapshot()["hibernate"], h.session.state["current"]),
+                         before)
+
+
 class Resume(unittest.TestCase):
     def pending(self, **kw):
         h = Harness(self, [MANUAL[0], MANUAL[1], HIB], **kw)
@@ -426,6 +500,38 @@ class Resume(unittest.TestCase):
         self.assertEqual(hib["live"]["slept_seconds"], 64)
         self.assertEqual(h.by_id()["a"]["note"], "ok")  # earlier answers survive
         self.assertTrue(s.finished.is_set())
+
+    def test_a_hibernate_that_never_ran_is_never_a_resume(self):
+        """pressed, then hwcheck ended in the delay; the machine did anything at all after."""
+        for how in ("stopped, then suspended overnight", "crashed", "power lost, then booted"):
+            with self.subTest(how=how):
+                h = Harness(self, [MANUAL[0], HIB])
+                h.session.answer("a", "works")
+                h.session.start_hibernate()
+                if how.startswith("stopped"):
+                    h.session.stop()
+                    h.session.run_hibernate(3600)  # wakes to the stop: never calls systemctl
+                h.clock.value += 8 * 3600  # time asleep since the press
+                if how.startswith("power"):
+                    h.readers.files["/proc/sys/kernel/random/boot_id"] = BOOT_B + "\n"
+                self.assertEqual(h.saved_state()["hibernate"]["phase"], "pending")
+                s = h.resume()
+                snap = s.snapshot()
+                self.assertEqual(h.hibernate.calls, 0)
+                self.assertEqual((snap["current"], snap["hibernate"]["phase"]), ("hibernate", "failed"))
+                self.assertIn("never ran", snap["hibernate"]["error"])
+                self.assertIsNone(h.by_id()["hibernate"]["answer"])  # not a fresh-boot doesn't-work either
+                with self.assertRaises(SessionError):
+                    s.answer("hibernate", "works")
+                # and it can be tried again, properly this time
+                s.start_hibernate()
+                s.run_hibernate(0)
+                self.assertEqual(h.hibernate.calls, 1)
+                h.clock.value += 40
+                s.answer("hibernate", "works", "came back")
+                live = h.by_id()["hibernate"]["live"]
+                self.assertEqual((live["phase"], live["resumed"]), ("resumed", True))
+                self.assertTrue(live["action_started"])
 
     def test_same_boot_and_no_sleep_means_it_never_hibernated(self):
         h = self.pending()

@@ -31,8 +31,10 @@ Each version's heading says whether it was a major, minor or patch change.
   check stays manual.
 - Hibernate, always the last check: pressing it saves "hibernate pending", the
   boot id and the time slept so far, then runs `systemctl hibernate` a second
-  later unless the person has answered meanwhile. "Works" is accepted only
-  once a sleep has been seen. A server that survives the hibernate notices the
+  later unless the person has answered meanwhile, saving an `action_started`
+  mark just before it does; a pending hibernate without that mark never ran,
+  and is never taken for a resume. "Works" is accepted only once a sleep has
+  been seen. A server that survives the hibernate notices the
   sleep and asks whether everything came back; `--resume` after a restart
   compares boot ids (a fresh boot is recorded as doesn't work, with the kernel
   log's hibernation lines from both boots) and, in the same boot, the time
