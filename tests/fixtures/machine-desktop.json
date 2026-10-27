@@ -1,0 +1,28 @@
+{
+  "about": "a tower desktop: usb keyboard and mouse, intel hda audio with front jacks, an nvidia card's hdmi audio; no battery, lid, touch, camera, bluetooth or wifi; zram only",
+  "include": {
+    "/proc/bus/input/devices": "input-devices-desktop.txt"
+  },
+  "files": {
+    "/proc/asound/cards": " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n                      HDA Intel PCH at 0x6001120000 irq 140\n 1 [NVidia         ]: HDA-Intel - HDA NVidia\n                      HDA NVidia at 0x82080000 irq 17\n",
+    "/proc/asound/pcm": "00-00: ALC897 Analog : ALC897 Analog : playback 1 : capture 1\n00-01: ALC897 Digital : ALC897 Digital : playback 1\n00-02: ALC897 Alt Analog : ALC897 Alt Analog : capture 1\n01-03: HDMI 0 : HDMI 0 : playback 1\n01-07: HDMI 1 : HDMI 1 : playback 1\n",
+    "/sys/class/drm/card0/dev": "226:0\n",
+    "/sys/class/drm/card0-DP-1/status": "connected\n",
+    "/sys/class/drm/card0-DP-2/status": "disconnected\n",
+    "/sys/class/drm/card0-DVI-D-1/status": "disconnected\n",
+    "/sys/class/drm/card0-HDMI-A-1/status": "disconnected\n",
+    "/sys/class/drm/renderD128/dev": "226:128\n",
+    "/sys/class/net/lo/type": "772\n",
+    "/sys/class/net/enp5s0/type": "1\n",
+    "/sys/class/net/enp5s0/device/uevent": "DRIVER=r8169\nPCI_ID=10EC:8168\n",
+    "/proc/swaps": "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n/dev/zram0                              partition\t8388604\t\t0\t\t100\n",
+    "/proc/meminfo": "MemTotal:       32768000 kB\nMemFree:        30000000 kB\n"
+  },
+  "links": {},
+  "commands": {
+    "busctl --system call net.reactivated.Fprint /net/reactivated/Fprint/Manager net.reactivated.Fprint.Manager GetDevices": {
+      "rc": 1,
+      "out": "Call failed: The name net.reactivated.Fprint was not provided by any .service files\n"
+    }
+  }
+}

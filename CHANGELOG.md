@@ -39,6 +39,14 @@ Each version's heading says whether it was a major, minor or patch change.
   slept (none means it never hibernated, and it can be tried again).
 - A secret made for each run, in the printed address (`?t=`), required on
   every api request, beside the host and origin checks.
+- Detection, the default without `--plan`: the plan is built read-only, as
+  the person, from the hardware the machine has (input devices, sound cards,
+  cameras, fprintd, iio accelerometers, lid, batteries, display ports,
+  bluetooth, wifi, and swap against memory for hibernate). Each check carries
+  the device it was made for, on the page and in the results. `--expect FILE`
+  lists what the model should have; each expected device not detected becomes
+  a failing check. `--detect --print-plan` prints the plan and exits. Plans
+  may carry `device` and `preset` (an answer recorded at the start).
 - State and results are written atomically to `~/.local/state/hwcheck/` after
   every answer; an unfinished run must be resumed or explicitly replaced
   (`--new`), and earlier runs are kept, renamed.

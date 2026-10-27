@@ -1,5 +1,6 @@
 """browser-free tests: drive hwcheck's http endpoints the way the page does."""
 
+import contextlib
 import http.client
 import io
 import json
@@ -14,8 +15,8 @@ import unittest
 from hwchecklib.cli import main
 from hwchecklib.plan import load_plan
 
-from .fakes import (BOOT_B, EXAMPLE_PLAN, ROOT, FakeClock, FakeHibernate, fake_readers, scratch_dir,
-                    wait_for)
+from .fakes import (BOOT_B, EXAMPLE_PLAN, ROOT, FakeClock, FakeHibernate, FakeMachine, fake_readers,
+                    scratch_dir, wait_for)
 
 MANUAL2 = {"checks": [{"id": "a", "title": "a", "kind": "manual"}, {"id": "b", "title": "b", "kind": "manual"}]}
 WITH_HIB = {"checks": [{"id": "a", "title": "a", "kind": "manual"},
@@ -50,7 +51,7 @@ class Run:
     """hwcheck's main() in a thread, on 127.0.0.1 with a free port and fake readers."""
 
     def __init__(self, test, plan_path, state_dir, readers=None, hibernate=None, args=(), clock=None,
-                 hibernate_delay=0):
+                 hibernate_delay=0, detector=None):
         self.readers = readers or fake_readers()
         self.hibernate = hibernate or FakeHibernate()
         self.clock = clock or FakeClock(0.0)
@@ -58,7 +59,9 @@ class Run:
         self.server = self.session = self.code = None
         self.ready = threading.Event()
         self.hibernate_delay = hibernate_delay
-        argv = ["--plan", str(plan_path), "--port", "0", "--state-dir", str(state_dir), *args]
+        self.detector = detector
+        plan_args = ["--plan", str(plan_path)] if plan_path else []  # none: detect
+        argv = [*plan_args, "--port", "0", "--state-dir", str(state_dir), *args]
         self.thread = threading.Thread(target=self._main, args=(argv,), daemon=True)
         self.thread.start()
         wait_for(lambda: self.ready.is_set() or not self.thread.is_alive(), timeout=10)
@@ -69,7 +72,8 @@ class Run:
             self.server, self.session = server, session
             self.ready.set()
 
-        self.code = main(argv, readers=self.readers, hibernate=self.hibernate, out=self.out, err=self.err,
+        self.code = main(argv, readers=self.readers, hibernate=self.hibernate, detector=self.detector,
+                         out=self.out, err=self.err,
                          on_ready=on_ready, grace=0.05, poll_interval=0.02,
                          hibernate_delay=self.hibernate_delay,
                          session_options={"sleep_clock": self.clock})
@@ -471,3 +475,94 @@ class ResumeFromTheCommandLine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Detection(unittest.TestCase):
+    def test_detect_is_the_default_and_its_plan_is_served(self):
+        d = scratch_dir(self)
+        run = Run(self, None, d / "state", detector=FakeMachine("machine-desktop.json").detector())
+        err = run.err.getvalue()
+        self.assertIn("detected 6 checks", err)
+        self.assertIn("hibernate (skip: no disk swap", err)
+        state = run.get()
+        self.assertEqual([c["id"] for c in state["checks"]],
+                         ["speakers", "microphone", "headphones", "keys", "external-display", "hibernate"])
+        keys = next(c for c in state["checks"] if c["id"] == "keys")
+        self.assertEqual(keys["device"]["name"], "Logitech USB Receiver")  # the page shows what it's for
+        self.assertEqual(state["counts"]["skip"], 1)  # hibernate, skipped with its reason from the start
+        for cid in ("speakers", "microphone", "headphones", "keys", "external-display"):
+            status, _ = run.post("/api/answer", {"id": cid, "answer": "works", "note": ""})
+            self.assertEqual(status, 200)
+        self.assertEqual(run.wait(), 0)
+        results = read_results(d / "state")
+        self.assertEqual(results["plan"], "detected")
+        got = {c["id"]: c for c in results["checks"]}
+        self.assertEqual(got["external-display"]["device"]["name"], "ports: DP-1, DP-2, DVI-D-1, HDMI-A-1")
+        self.assertEqual(got["speakers"]["device"]["path"], "/dev/snd/pcmC0D0p")
+        self.assertEqual(got["hibernate"]["answer"], "skip")
+        self.assertIn("no disk swap", got["hibernate"]["note"])
+
+    def test_print_plan_prints_and_serves_nothing(self):
+        d = scratch_dir(self)
+        out, err = io.StringIO(), io.StringIO()
+        code = main(["--detect", "--print-plan", "--expect", str(ROOT / "examples" / "expect-2in1.json"),
+                     "--state-dir", str(d / "state")],
+                    detector=FakeMachine("machine-2in1-no-pen.json").detector(), out=out, err=err)
+        self.assertEqual(code, 0)
+        plan = load_plan_text(out.getvalue())
+        ids = [c["id"] for c in plan["checks"]]
+        self.assertIn("missing-pen", ids)
+        self.assertNotIn("pen", ids)
+        self.assertFalse((d / "state").exists())
+        # the printed plan is a plan: it runs as --plan, presets and devices included
+        path = d / "detected.json"
+        path.write_text(out.getvalue(), encoding="utf-8")
+        run = Run(self, path, d / "state")
+        miss = next(c for c in run.get()["checks"] if c["id"] == "missing-pen")
+        self.assertEqual((miss["status"], miss["preset"]), ("doesnt-work", True))
+
+    def test_usage_refusals(self):
+        d = scratch_dir(self)
+        plan = write_plan(d, MANUAL2)
+        bad_expect = d / "expect.json"
+        bad_expect.write_text('[{"kind": "smell", "match": "x"}]', encoding="utf-8")
+        machine = FakeMachine("machine-desktop.json")
+        for argv, fragment in (
+                (["--plan", str(plan), "--expect", str(bad_expect)], "go with detection"),
+                (["--plan", str(plan), "--print-plan"], "go with detection"),
+                (["--resume", "--detect"], "doesn't detect again"),
+                (["--resume", "--expect", str(bad_expect)], "doesn't detect again"),
+                (["--print-plan", "--new"], "only prints"),
+                (["--expect", str(bad_expect)], "unknown kind")):
+            err = io.StringIO()
+            code = main([*argv, "--state-dir", str(d / "state")], detector=machine.detector(),
+                        out=io.StringIO(), err=err)
+            self.assertEqual(code, 2, argv)
+            self.assertIn(fragment, err.getvalue(), argv)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            main(["--plan", str(plan), "--detect"], out=io.StringIO(), err=io.StringIO())  # one or the other
+
+    def test_resume_uses_the_saved_plan_without_detecting_again(self):
+        d = scratch_dir(self)
+        first = Run(self, None, d / "state", args=["--timeout", "0.3"],
+                    detector=FakeMachine("machine-desktop.json").detector())
+        first.post("/api/answer", {"id": "speakers", "answer": "works", "note": ""})
+        self.assertEqual(first.wait(), 3)
+
+        class NoDetecting:
+            def detect(self):
+                raise AssertionError("--resume must not detect")
+
+        run = Run(self, None, d / "state", args=["--resume"], detector=NoDetecting())
+        state = run.get()
+        self.assertEqual(state["current"], "microphone")
+        self.assertEqual(state["checks"][0]["device"]["name"], "card 0 PCH: ALC897 Analog")
+        for cid in ("microphone", "headphones", "keys", "external-display"):
+            run.post("/api/answer", {"id": cid, "answer": "skip", "note": ""})
+        self.assertEqual(run.wait(), 0)
+        self.assertEqual(read_results(d / "state")["plan"], "detected")
+
+
+def load_plan_text(text):
+    from hwchecklib.plan import parse_plan
+    return parse_plan(json.loads(text))

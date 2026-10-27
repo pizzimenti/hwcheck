@@ -103,6 +103,8 @@ function showCheck(s, check) {
   stopTest();
   $("check-where").textContent = WHERE[check.where] || "";
   $("check-title").textContent = check.title;
+  const dev = check.device;
+  $("check-device").textContent = dev ? `for: ${dev.name}${dev.path && dev.path !== dev.name ? ` (${dev.path})` : ""}` : "";
   $("check-instructions").textContent = check.instructions;
   $("check-expect").textContent = check.expect ? `expected: ${check.expect}` : "";
   if (!(check.id in drafts)) drafts[check.id] = check.note || "";

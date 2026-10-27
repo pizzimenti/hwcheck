@@ -1,0 +1,73 @@
+I: Bus=0019 Vendor=0000 Product=0001 Version=0000
+N: Name="Power Button"
+P: Phys=PNP0C0C/button/input0
+S: Sysfs=/devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0C:00/input/input0
+U: Uniq=
+H: Handlers=kbd event0 
+B: PROP=0
+B: EV=3
+B: KEY=8000 10000000000000 0
+
+I: Bus=0003 Vendor=046d Product=c52b Version=0111
+N: Name="Logitech USB Receiver"
+P: Phys=usb-0000:00:14.0-4/input0
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb1/1-4/1-4:1.0/0003:046D:C52B.0001/input/input3
+U: Uniq=
+H: Handlers=sysrq kbd leds event3 
+B: PROP=0
+B: EV=120013
+B: KEY=1000000000007 ff9f207ac14057ff febeffdfffefffff fffffffffffffffe
+B: MSC=10
+B: LED=1f
+
+I: Bus=0003 Vendor=046d Product=c52b Version=0111
+N: Name="Logitech USB Receiver Mouse"
+P: Phys=usb-0000:00:14.0-4/input1
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb1/1-4/1-4:1.1/0003:046D:C52B.0002/input/input4
+U: Uniq=
+H: Handlers=mouse0 event4 
+B: PROP=0
+B: EV=17
+B: KEY=ffff0000 0 0 0 0
+B: REL=1943
+B: MSC=10
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH Front Mic"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input6
+U: Uniq=
+H: Handlers=event6 
+B: PROP=0
+B: EV=21
+B: SW=10
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH Line Out"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input8
+U: Uniq=
+H: Handlers=event8 
+B: PROP=0
+B: EV=21
+B: SW=40
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH Front Headphone"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input9
+U: Uniq=
+H: Handlers=event9 
+B: PROP=0
+B: EV=21
+B: SW=4
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA NVidia HDMI/DP,pcm=3"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:01:00.1/sound/card1/input12
+U: Uniq=
+H: Handlers=event12 
+B: PROP=0
+B: EV=21
+B: SW=140

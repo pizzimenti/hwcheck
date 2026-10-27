@@ -4,9 +4,10 @@ import json
 import re
 import unittest
 
+from hwchecklib.detect import ORDER, load_expect
 from hwchecklib.plan import load_plan, parse_plan
 
-from .fakes import EXAMPLE_PLAN, ROOT
+from .fakes import EXAMPLE_PLAN, ROOT, scratch_dir
 
 README = ROOT / "README.md"
 EXAMPLE_RESULTS = ROOT / "examples" / "results-2in1.json"
@@ -42,8 +43,24 @@ class Docs(unittest.TestCase):
 
     def test_the_plan_format_sketch_is_a_valid_plan(self):
         blocks = json_blocks(README.read_text(encoding="utf-8"))
-        sketch = next(b for b in blocks if b.get("checks") and len(b["checks"]) == 1)
+        sketch = next(b for b in blocks if isinstance(b, dict) and len(b.get("checks", [])) == 1)
         self.assertEqual(parse_plan(sketch)["checks"][0]["kind"], "speakers")
+
+    def test_the_expect_examples_load(self):
+        blocks = [b for b in json_blocks(README.read_text(encoding="utf-8")) if isinstance(b, list)]
+        self.assertTrue(blocks)
+        path = scratch_dir(self) / "expect.json"
+        for block in blocks:
+            path.write_text(json.dumps(block), encoding="utf-8")
+            self.assertTrue(load_expect(path))
+        self.assertEqual(len(load_expect(ROOT / "examples" / "expect-2in1.json")), 14)
+
+    def test_the_detection_table_names_every_detected_kind(self):
+        text = README.read_text(encoding="utf-8")
+        table = text[text.index("## detection"):text.index("### expected devices")]
+        for key in ORDER + ("hibernate",):
+            self.assertIn(f"| {key}", table.replace("| tablet-mode, rotation", "| tablet-mode | rotation")
+                          .replace("| camera (one per camera)", "| camera"), key)
 
 
 if __name__ == "__main__":

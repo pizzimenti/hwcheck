@@ -66,7 +66,7 @@ nav li.current button { border-color: var(--running); box-shadow: inset 3px 0 0 
 #check h2 { margin: 0.1rem 0 0.5rem; font-size: 1.5rem; }
 .where { margin: 0; color: var(--muted); font-size: 0.85rem; }
 #check-expect { color: var(--muted); }
-#check-expect:empty, #check-instructions:empty { display: none; }
+#check-expect:empty, #check-instructions:empty, #check-device:empty { display: none; }
 #test { margin: 1rem 0; }
 #test .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
 button {

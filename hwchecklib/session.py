@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 
 from . import __version__
-from .plan import signature, where
+from .plan import parse_plan, signature, where
 
 ANSWERS = ("works", "doesnt-work", "skip")
 FORMAT = 1
@@ -115,14 +115,26 @@ class Session:
             "answers": {},
             "hibernate": _new_hibernate(),
         }
+        for c in plan["checks"]:
+            # answers the plan carries in (an expected device that wasn't found, hibernate with no swap)
+            if c.get("preset"):
+                state["answers"][c["id"]] = {"answer": c["preset"]["answer"], "note": c["preset"]["note"],
+                                             "at": stamp, "live": {"source": "preset"}}
         s = cls(state, store, readers, hibernate_action, now, sleep_clock)
         state["current"] = s._next_check(None)
+        if state["current"] is None:
+            state["finished"] = stamp
+            s.finished.set()
         s._save()
         return s
 
     @classmethod
-    def resume(cls, saved: dict, plan: dict, plan_path, store, readers,
+    def resume(cls, saved: dict, plan: dict | None, plan_path, store, readers,
                hibernate_action=systemctl_hibernate, now=iso_now, sleep_clock=sleep_offset) -> "Session":
+        """carry on a saved run. plan None: the saved run's own plan (a detected plan isn't detected again)."""
+        if plan is None:
+            plan = parse_plan(saved.get("plan"))
+            plan_path = saved.get("plan_path") or plan_path
         if signature(saved.get("plan") or {"checks": []}) != signature(plan):
             raise SessionError("the plan's checks (ids or kinds) changed since this run started; "
                                "use the same plan, or --new to start over")
@@ -269,7 +281,7 @@ class Session:
         for c in self.checks:
             a = self.state["answers"].get(c["id"]) or {}
             checks.append({
-                "id": c["id"], "title": c["title"], "kind": c["kind"],
+                "id": c["id"], "title": c["title"], "kind": c["kind"], "device": c.get("device"),
                 "answer": a.get("answer"), "note": a.get("note", ""),
                 "at": a.get("at"), "live": a.get("live"),
             })
@@ -306,6 +318,7 @@ class Session:
                 checks.append({
                     "id": c["id"], "title": c["title"], "kind": c["kind"], "where": where(c["kind"]),
                     "instructions": c["instructions"], "expect": c["expect"], "status": status,
+                    "device": c.get("device"), "preset": bool(c.get("preset")),
                     "answer": a["answer"] if a else None, "note": a["note"] if a else "",
                 })
             hib = self.state["hibernate"]

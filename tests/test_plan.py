@@ -24,12 +24,23 @@ class PlanParsing(unittest.TestCase):
     def test_minimal_check_defaults(self):
         plan = parse_plan({"checks": [{"id": "wifi", "title": "wifi", "kind": "manual"}]})
         self.assertEqual(plan["checks"][0],
-                         {"id": "wifi", "title": "wifi", "kind": "manual", "instructions": "", "expect": ""})
+                         {"id": "wifi", "title": "wifi", "kind": "manual", "instructions": "", "expect": "",
+                          "device": None, "preset": None})
         self.assertIsNone(plan["machine"])
 
     def test_machine_and_model_override(self):
         plan = parse_plan({"machine": "testbook", "model": "test model", "checks": [check()]})
         self.assertEqual((plan["machine"], plan["model"]), ("testbook", "test model"))
+
+    def test_device_and_preset(self):
+        plan = parse_plan({"checks": [check(device={"name": "Wacom Pen", "path": "/dev/input/event16",
+                                                    "ids": ["i2c-WACF2200:00"]},
+                                            preset={"answer": "skip", "note": " no swap "})]})
+        c = plan["checks"][0]
+        self.assertEqual(c["device"], {"name": "Wacom Pen", "path": "/dev/input/event16", "ids": ["i2c-WACF2200:00"]})
+        self.assertEqual(c["preset"], {"answer": "skip", "note": "no swap"})
+        self.assertEqual(parse_plan({"checks": [check(device={"name": "x"})]})["checks"][0]["device"],
+                         {"name": "x", "path": None, "ids": []})
 
     def test_signature_is_ids_and_kinds(self):
         plan = parse_plan({"checks": [check(), check(id="cam", kind="camera")]})
@@ -78,6 +89,13 @@ class PlanRefusals(unittest.TestCase):
         self.refused({"checks": [check(title=3)]}, "\"title\" must be a string")
         self.refused({"checks": [check(title="  ")]}, "\"title\" is empty")
         self.refused({"checks": [check()], "machine": 7}, "\"machine\" must be a non-empty string")
+
+    def test_bad_device_or_preset(self):
+        self.refused({"checks": [check(device="pen")]}, "\"device\" must be an object")
+        self.refused({"checks": [check(device={"name": "x", "serial": "1"})]}, "\"device\" must be an object")
+        self.refused({"checks": [check(device={"name": "x", "ids": "y"})]}, "ids must be a list")
+        self.refused({"checks": [check(preset={"answer": "works"})]}, "\"preset\" must be")
+        self.refused({"checks": [check(preset="skip")]}, "\"preset\" must be")
 
     def test_hibernate_must_be_last_and_single(self):
         hib = check(id="hibernate", kind="hibernate", title="hibernate")

@@ -7,6 +7,12 @@ them to drag a box, reads the lid and charger state) and records whether it
 works, doesn't work or was skipped, with a note. the provisioner reads the
 results file afterwards.
 
+by default it builds its checks from the hardware the machine actually has: a
+touchscreen check only if there is a touchscreen, one camera check per camera,
+and so on. given a list of what the model should have (`--expect`), anything
+expected that isn't detected becomes a failing check, so a missing driver shows
+up. an explicit plan (`--plan`) replaces detection.
+
 current version: `0.1.0` · see [CHANGELOG.md](CHANGELOG.md)
 
 ## run it
@@ -14,7 +20,10 @@ current version: `0.1.0` · see [CHANGELOG.md](CHANGELOG.md)
 ```sh
 git clone https://github.com/pizzimenti/hwcheck
 cd hwcheck
-python3 hwcheck.py --plan examples/plan-2in1.json
+python3 hwcheck.py                                       # detect, then check what was found
+python3 hwcheck.py --expect examples/expect-2in1.json    # ...and fail what should be there but isn't
+python3 hwcheck.py --detect --print-plan > plan.json     # just show the plan detection builds
+python3 hwcheck.py --plan examples/plan-2in1.json        # a plan of your own instead
 ```
 
 the first line it prints is the page's address (`http://127.0.0.1:8770/?t=…`);
@@ -27,8 +36,11 @@ nothing from anywhere else, and the camera and microphone work because
 
 | option | what it does |
 |---|---|
-| `--plan P` | the check plan (json, below). required. |
-| `--resume` | carry on with the saved run where it stopped: after hibernate, a timeout or a stop. |
+| `--detect` | build the plan from the hardware this machine has (below). the default without `--plan`. |
+| `--expect FILE` | with detection: a json list of devices this model should have; each one not detected becomes a failing check. |
+| `--print-plan` | with detection: print the plan it builds (a valid `--plan` file) and exit, serving nothing and writing no state. |
+| `--plan P` | use this check plan (json, below) instead of detecting. |
+| `--resume` | carry on with the saved run where it stopped: after hibernate, a timeout or a stop. without `--plan` it uses the saved run's own plan and doesn't detect again (a fresh boot could detect differently). |
 | `--new` | start over although an unfinished run is saved; its files are kept, renamed `state-<started>.json` and `results-<started>.json`. |
 | `--port N` | port on 127.0.0.1 (default 8770; `0` picks a free one). |
 | `--timeout S` | stop after S seconds awake, answered or not (default: no limit). time asleep doesn't count. |
@@ -78,6 +90,57 @@ the camera and microphone streams stop when their check ends (an answer, or
 choosing another check) and when the page closes. the person can choose any
 check from the list to answer it again; hibernate opens only when every other
 check has an answer.
+
+## detection
+
+detection only reads, as the person running it (no root): `/proc`, `/sys`, and
+two tools over the user's own rights. a source it can't read counts as nothing
+there, and is noted in the terminal. every check it makes carries the device it
+was made for (`device`: name, path and the ids `--expect` matches against), on
+the page and in the results.
+
+| check | source | made when |
+|---|---|---|
+| speakers | `/proc/asound/pcm`, `/proc/asound/cards` | a playback pcm that isn't hdmi or displayport |
+| microphone | `/proc/asound/pcm` | a capture pcm (a laptop's dmic is preferred as its device) |
+| headphones | the jack switch in `/proc/bus/input/devices` (`SW_HEADPHONE_INSERT`), else `pactl list sinks` | a headphone jack switch, or a sink port named headphones |
+| camera (one per camera) | `/sys/class/video4linux/video*` (`name`, `index`, `device`) | a capture node (index 0), one per physical device, so metadata nodes don't count twice |
+| touch | `/proc/bus/input/devices` | a direct (`INPUT_PROP_DIRECT`) absolute device that isn't a pen |
+| pen | `/proc/bus/input/devices` | `BTN_TOOL_PEN`, `ABS_TILT_X`, or a name ending in pen or stylus |
+| keys | `/proc/bus/input/devices` | always; its device is the first input with q, a, z and space |
+| touchpad | `/proc/bus/input/devices` | `INPUT_PROP_POINTER` with `BTN_TOOL_FINGER` and multitouch |
+| fingerprint | `busctl --system call net.reactivated.Fprint … GetDevices` | fprintd lists a reader; skipped if fprintd is absent |
+| tablet-mode, rotation | the tablet-mode switch (`SW_TABLET_MODE`) in `/proc/bus/input/devices`; an accelerometer in `/sys/bus/iio/devices` (`in_accel_*`) | either one: both checks then, so a 2-in-1 missing the driver for the other shows it |
+| power (charger) | `/sys/class/power_supply/*/type` | a battery that isn't a peripheral's (`scope` not `Device`) |
+| lid | `/proc/acpi/button/lid/*`, else the lid switch (`SW_LID`) | a lid |
+| external-display | `/sys/class/drm/card*-*` | always; its device lists the ports (`eDP`, `LVDS`, `DSI` left out) |
+| bluetooth | `/sys/class/bluetooth/hci*` | a controller |
+| wifi | `/sys/class/net/*/` (`wireless` or `phy80211`) | a wireless interface |
+| hibernate | `/proc/swaps`, `/proc/meminfo` | always, last; skipped from the start, saying why, unless disk swap (zram doesn't count) is at least the size of memory |
+
+touchpad and wifi are manual checks (look, then answer); the rest run as their
+kinds below.
+
+### expected devices
+
+```json
+[
+  {"kind": "pen", "match": "WACF2200"},
+  {"kind": "camera", "match": "Integrated I"},
+  {"kind": "battery", "match": "BAT0"}
+]
+```
+
+`kind` is a check's name from the table (or `touchscreen`, `stylus`,
+`keyboard`, `webcam`, `accelerometer`, `battery`, `display`, `swap`, `mic`).
+`match` is a case-insensitive regular expression searched in every detected
+device of that kind: its name, path and ids (for an input device, its phys
+and sysfs path and `vendor:product`; for a usb camera or bluetooth controller,
+its `vendor:product`). each entry no device matches becomes a check titled
+`expected but not detected: pen WACF2200`, recorded as doesn't work from the
+start. [examples/expect-2in1.json](examples/expect-2in1.json) lists the sample
+2-in-1's devices. `--detect --print-plan` shows every detected device's ids,
+which is the easiest way to write one.
 
 ## hibernate and --resume
 
@@ -130,6 +193,12 @@ boot (`journalctl -k -b 0`) and, after a fresh boot, from the boot before
 - `title`: shown in the list and as the heading.
 - `kind`: one of the kinds above.
 - `instructions`, `expect`: optional text shown with the check.
+- `device`: optional; what the check was made for, `{"name", "path", "ids"}`.
+  detection fills it in.
+- `preset`: optional; an answer recorded when the run starts,
+  `{"answer": "doesnt-work" or "skip", "note": "why"}`. detection uses it for
+  expected devices it didn't find and for hibernate without enough swap. a plan
+  can't preset works.
 - at most one `hibernate` check, and it must be the last.
 
 a bad plan is refused before anything starts, with every problem listed
@@ -145,7 +214,7 @@ may change.
   "machine": "the hostname, or the plan's machine",
   "model": "vendor, product name and version from dmi, or the plan's model",
   "boot_id": "the boot this run is in now",
-  "plan": "the plan's path",
+  "plan": "the plan's path, or \"detected\"",
   "started": "2026-10-27T14:02:11-07:00",
   "updated": "…",
   "finished": "… or null while checks are left",
@@ -154,6 +223,7 @@ may change.
       "id": "power",
       "title": "charger",
       "kind": "power",
+      "device": "what the check was made for ({name, path, ids}), or null",
       "answer": "works | doesnt-work | skip | null (not answered yet)",
       "note": "what the person typed",
       "at": "when they answered",
@@ -163,7 +233,8 @@ may change.
 }
 ```
 
-every check in the plan is listed, in plan order. `live` depends on the kind:
+every check in the plan is listed, in plan order. `live` depends on the kind
+(a preset answer has `{"source": "preset"}`):
 
 - **page checks**: `{"source": "page", …}` with what the page measured: the
   tones played, the microphone's device and peak level, cameras found, the most
@@ -177,9 +248,10 @@ every check in the plan is listed, in plan order. `live` depends on the kind:
 
 ## a sample plan for a 2-in-1
 
-this is [examples/plan-2in1.json](examples/plan-2in1.json): every kind, in an
-order a person can follow with the machine on a desk, then folded, then
-hibernated.
+this is [examples/plan-2in1.json](examples/plan-2in1.json), written by hand:
+every kind, in an order a person can follow with the machine on a desk, then
+folded, then hibernated. detection on the same machine builds much the same
+plan, with one check per camera and a device on each.
 
 <details>
 <summary>examples/plan-2in1.json</summary>
@@ -330,6 +402,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "speakers",
       "title": "speakers",
       "kind": "speakers",
+      "device": null,
       "answer": "works",
       "note": "both sides clear",
       "at": "2026-10-27T14:02:51-07:00",
@@ -346,6 +419,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "microphone",
       "title": "microphone",
       "kind": "microphone",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:03:48-07:00",
@@ -361,6 +435,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "headphones",
       "title": "headphone jack",
       "kind": "headphones",
+      "device": null,
       "answer": "skip",
       "note": "no wired headphones to hand",
       "at": "2026-10-27T14:04:10-07:00",
@@ -373,6 +448,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "camera",
       "title": "camera",
       "kind": "camera",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:04:47-07:00",
@@ -388,6 +464,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "touch",
       "title": "touchscreen",
       "kind": "touch",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:05:34-07:00",
@@ -403,6 +480,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "pen",
       "title": "pen",
       "kind": "pen",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:06:46-07:00",
@@ -423,6 +501,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "keys",
       "title": "keyboard",
       "kind": "keys",
+      "device": null,
       "answer": "doesnt-work",
       "note": "f12 does nothing",
       "at": "2026-10-27T14:09:18-07:00",
@@ -439,6 +518,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "touchpad",
       "title": "touchpad",
       "kind": "manual",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:09:50-07:00",
@@ -448,6 +528,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "tablet-mode",
       "title": "tablet mode",
       "kind": "tablet-mode",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:10:17-07:00",
@@ -494,6 +575,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "rotation",
       "title": "screen rotation",
       "kind": "rotation",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:10:45-07:00",
@@ -539,6 +621,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "power",
       "title": "charger",
       "kind": "power",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:11:09-07:00",
@@ -583,6 +666,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "lid",
       "title": "lid",
       "kind": "lid",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:11:32-07:00",
@@ -618,6 +702,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "external-display",
       "title": "external display",
       "kind": "external-display",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:11:59-07:00",
@@ -678,6 +763,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "bluetooth",
       "title": "bluetooth",
       "kind": "bluetooth",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:13:01-07:00",
@@ -719,6 +805,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "wifi",
       "title": "wifi",
       "kind": "manual",
+      "device": null,
       "answer": "works",
       "note": "",
       "at": "2026-10-27T14:13:18-07:00",
@@ -728,6 +815,7 @@ screen folded and turned, the machine hibernated and resumed.
       "id": "hibernate",
       "title": "hibernate",
       "kind": "hibernate",
+      "device": null,
       "answer": "works",
       "note": "came back with wifi and sound",
       "at": "2026-10-27T14:15:35-07:00",
@@ -779,7 +867,9 @@ screen folded and turned, the machine hibernated and resumed.
   carrying another host name or another site's origin, and sends nothing off
   the machine.
 - it starts nothing else: the only other process it runs for longer than a
-  read is `monitor-sensor`, while the rotation check is on screen.
+  read is `monitor-sensor`, while the rotation check is on screen. (asking
+  fprintd for its readers may start fprintd by d-bus activation; it stops
+  itself when idle.)
 - it needs no root. the tablet-mode switch's state is readable only with access
   to `/dev/input/event*` (root or the `input` group), so usually plasma's view
   is shown instead, or the switch is shown as present and the check is manual.
@@ -793,9 +883,12 @@ python3 -m unittest      # or: python3 -m pytest
 ```
 
 every system reader is faked with recorded outputs in `tests/fixtures/`; no
-test touches a device or runs `systemctl hibernate`. `tests/test_server.py`
-drives the http endpoints through the whole sample plan, and through
-`--resume` after a same-boot and a fresh-boot hibernate.
+test touches a device or runs `systemctl hibernate`. detection runs on three
+recorded machines (`tests/fixtures/machine-*.json`): the sample 2-in-1, a
+desktop with no battery, lid, touch or camera, and the 2-in-1 with its pen
+missing. `tests/test_server.py` drives the http endpoints through the whole
+sample plan, a detected plan, and `--resume` after a same-boot and a
+fresh-boot hibernate.
 
 ## license
 

@@ -1,0 +1,60 @@
+{
+  "about": "a lenovo thinkpad x1 yoga gen 7 (2-in-1): wacom touch and pen, two cameras (rgb and ir), sof audio, fingerprint, accelerometer",
+  "include": {
+    "/proc/bus/input/devices": "input-devices-2in1.txt"
+  },
+  "files": {
+    "/proc/asound/cards": " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp\n                      LENOVO-21CD0019US-ThinkPadX1YogaGen7-21CD0019US\n",
+    "/proc/asound/pcm": "00-00: HDA Analog (*) :  : playback 1 : capture 1\n00-01: HDMI1 (*) :  : playback 1\n00-02: HDMI2 (*) :  : playback 1\n00-03: HDMI3 (*) :  : playback 1\n00-06: DMIC Raw (*) :  : capture 1\n00-07: DMIC16kHz (*) :  : capture 1\n00-31: Deepbuffer HDA Analog (*) :  : playback 1\n",
+    "/sys/class/video4linux/video0/name": "Integrated Camera: Integrated C\n",
+    "/sys/class/video4linux/video0/index": "0\n",
+    "/sys/class/video4linux/video0/device/modalias": "usb:v04F2pB6EAd0012dcEFdsc02dp01ic0Eisc01ip01in00\n",
+    "/sys/class/video4linux/video1/name": "Integrated Camera: Integrated C\n",
+    "/sys/class/video4linux/video1/index": "1\n",
+    "/sys/class/video4linux/video2/name": "Integrated Camera: Integrated I\n",
+    "/sys/class/video4linux/video2/index": "0\n",
+    "/sys/class/video4linux/video2/device/modalias": "usb:v04F2pB6EAd0012dcEFdsc02dp01ic0Eisc01ip01in02\n",
+    "/sys/class/video4linux/video3/name": "Integrated Camera: Integrated I\n",
+    "/sys/class/video4linux/video3/index": "1\n",
+    "/sys/bus/iio/devices/iio:device0/name": "accel_3d\n",
+    "/sys/bus/iio/devices/iio:device0/in_accel_x_raw": "-12\n",
+    "/sys/bus/iio/devices/iio:device0/in_accel_y_raw": "-9810\n",
+    "/sys/bus/iio/devices/iio:device0/in_accel_z_raw": "40\n",
+    "/sys/bus/iio/devices/iio:device1/name": "als\n",
+    "/sys/bus/iio/devices/iio:device1/in_illuminance_raw": "212\n",
+    "/proc/acpi/button/lid/LID/state": "state:      open\n",
+    "/sys/class/power_supply/AC/type": "Mains\n",
+    "/sys/class/power_supply/BAT0/type": "Battery\n",
+    "/sys/class/power_supply/BAT0/manufacturer": "SMP\n",
+    "/sys/class/power_supply/BAT0/model_name": "5B10W13975\n",
+    "/sys/class/power_supply/hidpp_battery_0/type": "Battery\n",
+    "/sys/class/power_supply/hidpp_battery_0/scope": "Device\n",
+    "/sys/class/power_supply/hidpp_battery_0/model_name": "MX Master 3\n",
+    "/sys/class/drm/card1/dev": "226:1\n",
+    "/sys/class/drm/card1-eDP-1/status": "connected\n",
+    "/sys/class/drm/card1-DP-1/status": "disconnected\n",
+    "/sys/class/drm/card1-DP-2/status": "disconnected\n",
+    "/sys/class/drm/card1-HDMI-A-1/status": "disconnected\n",
+    "/sys/class/drm/renderD128/dev": "226:128\n",
+    "/sys/class/drm/version": "drm 1.1.0 20060810\n",
+    "/sys/class/bluetooth/hci0/device/modalias": "usb:v8087p0033d0000dcE0dsc01dp01icE0isc01ip01in00\n",
+    "/sys/class/bluetooth/hci0:3/type": "ACL\n",
+    "/sys/class/net/lo/type": "772\n",
+    "/sys/class/net/wlan0/phy80211/name": "phy0\n",
+    "/sys/class/net/wlan0/device/uevent": "DRIVER=iwlwifi\nPCI_CLASS=28000\nPCI_ID=8086:51F0\nPCI_SUBSYS_ID=8086:0090\nPCI_SLOT_NAME=0000:00:14.3\nMODALIAS=pci:v00008086d000051F0sv00008086sd00000090bc02sc80i00\n",
+    "/proc/swaps": "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n/dev/nvme0n1p3                          partition\t33554428\t0\t\t-2\n/dev/zram0                              partition\t8388604\t\t0\t\t100\n",
+    "/proc/meminfo": "MemTotal:       32479932 kB\nMemFree:        28123456 kB\nMemAvailable:   30123456 kB\n"
+  },
+  "links": {
+    "/sys/class/video4linux/video0/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.0",
+    "/sys/class/video4linux/video1/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.0",
+    "/sys/class/video4linux/video2/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.2",
+    "/sys/class/video4linux/video3/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.2",
+    "/sys/bus/iio/devices/iio:device0": "/sys/devices/pci0000:00/0000:00:12.0/{33AECD58-B679-4E54-9BD9-A04D34F0C226}/001F:8087:0AC2.0003/HID-SENSOR-200073.3.auto/iio:device0",
+    "/sys/bus/iio/devices/iio:device1": "/sys/devices/pci0000:00/0000:00:12.0/{33AECD58-B679-4E54-9BD9-A04D34F0C226}/001F:8087:0AC2.0003/HID-SENSOR-200041.6.auto/iio:device1"
+  },
+  "commands": {
+    "busctl --system call net.reactivated.Fprint /net/reactivated/Fprint/Manager net.reactivated.Fprint.Manager GetDevices": "ao 1 \"/net/reactivated/Fprint/Device/0\"\n",
+    "busctl --system get-property net.reactivated.Fprint /net/reactivated/Fprint/Device/0 net.reactivated.Fprint.Device name": "s \"Synaptics Sensors\"\n"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "about": "the same 2-in-1 with its pen not detected (as with a missing driver)",
+  "base": "machine-2in1.json",
+  "include": {
+    "/proc/bus/input/devices": "input-devices-2in1-no-pen.txt"
+  }
+}

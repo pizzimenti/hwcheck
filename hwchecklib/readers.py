@@ -252,9 +252,17 @@ def parse_input_devices(text: str) -> list[dict]:
     """the blocks of /proc/bus/input/devices."""
     devices = []
     for block in re.split(r"\n\s*\n", text.strip()):
-        dev = {"name": "", "handlers": [], "event": None, "bits": {}}
+        dev = {"name": "", "handlers": [], "event": None, "bits": {}, "phys": "", "sysfs": "", "id": ""}
         for line in block.splitlines():
-            if line.startswith("N: Name="):
+            if line.startswith("I: "):
+                m = re.search(r"Vendor=([0-9a-fA-F]+) Product=([0-9a-fA-F]+)", line)
+                if m:
+                    dev["id"] = f"{m.group(1).lower()}:{m.group(2).lower()}"
+            elif line.startswith("P: Phys="):
+                dev["phys"] = line[len("P: Phys="):].strip()
+            elif line.startswith("S: Sysfs="):
+                dev["sysfs"] = line[len("S: Sysfs="):].strip()
+            elif line.startswith("N: Name="):
                 dev["name"] = line[len("N: Name="):].strip().strip('"')
             elif line.startswith("H: Handlers="):
                 dev["handlers"] = line[len("H: Handlers="):].split()

@@ -1,15 +1,17 @@
-"""python3 hwcheck.py --plan P [--resume | --new] [--port N] [--timeout S]"""
+"""python3 hwcheck.py [--detect [--expect E] [--print-plan] | --plan P] [--resume | --new] [--port N] [--timeout S]"""
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import signal
 import sys
 import threading
 
 from . import __version__
-from .plan import PlanError, load_plan
+from .detect import Detector, ExpectError, build_plan, load_expect, summary
+from .plan import PlanError, load_plan, parse_plan
 from .readers import Readers
 from .server import Server, serve
 from .session import Session, SessionError, systemctl_hibernate
@@ -31,7 +33,15 @@ def build_parser() -> argparse.ArgumentParser:
         description="an on-screen hardware check. serves one page on 127.0.0.1 that walks a person "
                     "through each check and saves every answer under ~/.local/state/hwcheck/.",
     )
-    p.add_argument("--plan", required=True, help="the check plan (json)")
+    source = p.add_mutually_exclusive_group()
+    source.add_argument("--detect", action="store_true",
+                        help="build the plan from the hardware this machine has (the default without --plan)")
+    source.add_argument("--plan", help="use this check plan (json) instead of detecting")
+    p.add_argument("--expect", metavar="FILE",
+                   help="with detection: a json list of devices this model should have, "
+                        "[{\"kind\": \"pen\", \"match\": \"WACF2200\"}]; each one not detected becomes a failing check")
+    p.add_argument("--print-plan", action="store_true",
+                   help="with detection: print the plan it builds and exit, serving nothing")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--resume", action="store_true",
                       help="carry on with the saved run where it stopped (after hibernate, a timeout or a stop)")
@@ -51,11 +61,11 @@ def _stamp(started) -> str:
     return digits or "old"
 
 
-def main(argv=None, *, readers=None, hibernate=None, out=None, err=None, on_ready=None,
+def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, err=None, on_ready=None,
          grace: float = 1.5, poll_interval: float = 1.0, hibernate_delay: float = 1.0,
          session_options: dict | None = None) -> int:
-    """run hwcheck. the keyword arguments are seams for tests (fake readers, a fake
-    hibernate, a fake clock through session_options); the command line never sets them."""
+    """run hwcheck. the keyword arguments are seams for tests (fake readers and detector, a
+    fake hibernate, a fake clock through session_options); the command line never sets them."""
     args = build_parser().parse_args(argv)
     out = out or sys.stdout
     err = err or sys.stderr
@@ -69,13 +79,45 @@ def main(argv=None, *, readers=None, hibernate=None, out=None, err=None, on_read
     if args.timeout < 0:
         say("--timeout can't be negative")
         return EXIT_USAGE
-    try:
-        plan = load_plan(args.plan)
-    except PlanError as exc:
-        say(f"bad plan {args.plan}:")
-        for problem in exc.problems:
-            print(f"  - {problem}", file=err, flush=True)
+    if args.plan and (args.expect or args.print_plan):
+        say("--expect and --print-plan go with detection, not --plan")
         return EXIT_USAGE
+    if args.resume and (args.detect or args.expect or args.print_plan):
+        say("--resume carries on with the saved run's own plan; it doesn't detect again")
+        return EXIT_USAGE
+    if args.print_plan and args.new:
+        say("--print-plan only prints; it starts no run")
+        return EXIT_USAGE
+
+    def problems(title: str, items) -> int:
+        say(title)
+        for item in items:
+            print(f"  - {item}", file=err, flush=True)
+        return EXIT_USAGE
+
+    plan, plan_label = None, args.plan
+    if args.plan:
+        try:
+            plan = load_plan(args.plan)
+        except PlanError as exc:
+            return problems(f"bad plan {args.plan}:", exc.problems)
+    elif not args.resume:
+        try:
+            expect = load_expect(args.expect) if args.expect else []
+        except ExpectError as exc:
+            return problems(f"bad expect file {args.expect}:", exc.problems)
+        detected = (detector or Detector()).detect()
+        try:
+            plan = parse_plan(build_plan(detected, expect))
+        except PlanError as exc:  # a detection bug, never the person's
+            return problems("the detected plan is invalid:", exc.problems)
+        if args.print_plan:
+            print(json.dumps(plan, indent=2, ensure_ascii=False), file=out, flush=True)
+            return EXIT_DONE
+        plan_label = "detected" + (f", expecting {args.expect}" if args.expect else "")
+        say(f"detected {len(plan['checks'])} checks:")
+        for line in summary(detected, plan):
+            print(f"  {line}", file=err, flush=True)
 
     store = Store(args.state_dir)
     readers = readers or Readers()
@@ -89,7 +131,7 @@ def main(argv=None, *, readers=None, hibernate=None, out=None, err=None, on_read
             if saved.get("finished"):
                 say(f"that run finished at {saved['finished']}; its results are in {store.results_path}")
                 return EXIT_DONE
-            session = Session.resume(saved, plan, args.plan, store, readers, hibernate,
+            session = Session.resume(saved, plan, plan_label, store, readers, hibernate,
                                      **(session_options or {}))
         else:
             if saved and not saved.get("finished") and not args.new:
@@ -102,7 +144,9 @@ def main(argv=None, *, readers=None, hibernate=None, out=None, err=None, on_read
                 moved = store.archive(_stamp(saved.get("started")))
                 if moved:
                     say("kept the earlier run as " + ", ".join(p.name for p in moved))
-            session = Session.new(plan, args.plan, store, readers, hibernate, **(session_options or {}))
+            session = Session.new(plan, plan_label, store, readers, hibernate, **(session_options or {}))
+    except PlanError as exc:
+        return problems("the saved run's plan is unreadable:", exc.problems)
     except (StoreError, SessionError) as exc:
         say(str(exc))
         return EXIT_USAGE if isinstance(exc, SessionError) and exc.status < 500 else EXIT_ERROR

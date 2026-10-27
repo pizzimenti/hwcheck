@@ -1,0 +1,16 @@
+[
+  {"kind": "touch", "match": "WACF2200"},
+  {"kind": "pen", "match": "WACF2200"},
+  {"kind": "camera", "match": "Integrated C"},
+  {"kind": "camera", "match": "Integrated I"},
+  {"kind": "touchpad", "match": "SYNA8018"},
+  {"kind": "fingerprint", "match": "Synaptics"},
+  {"kind": "tablet-mode", "match": "Intel HID switches"},
+  {"kind": "rotation", "match": "accel_3d"},
+  {"kind": "speakers", "match": "sof-hda-dsp"},
+  {"kind": "microphone", "match": "DMIC"},
+  {"kind": "headphones", "match": "Headphone"},
+  {"kind": "bluetooth", "match": "8087:0033"},
+  {"kind": "wifi", "match": "iwlwifi"},
+  {"kind": "battery", "match": "BAT0"}
+]

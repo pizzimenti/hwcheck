@@ -30,7 +30,9 @@ KINDS = {
 }
 
 PLAN_KEYS = {"checks", "machine", "model"}
-CHECK_KEYS = {"id", "title", "kind", "instructions", "expect"}
+CHECK_KEYS = {"id", "title", "kind", "instructions", "expect", "device", "preset"}
+DEVICE_KEYS = {"name", "path", "ids"}
+PRESET_ANSWERS = ("doesnt-work", "skip")  # a plan can't vouch that something works
 REQUIRED_CHECK_KEYS = ("id", "title", "kind")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 MAX_CHECKS = 100
@@ -112,6 +114,8 @@ def parse_plan(obj) -> dict:
             out[key] = value.strip()
         if "title" in check and isinstance(check.get("title"), str) and not out["title"]:
             problems.append(f"{label}: \"title\" is empty")
+        out["device"] = _device(check.get("device"), label, problems)
+        out["preset"] = _preset(check.get("preset"), label, problems)
         plan["checks"].append(out)
 
     kinds = [c.get("kind") for c in plan["checks"]]
@@ -123,6 +127,36 @@ def parse_plan(obj) -> dict:
     if problems:
         raise PlanError(problems)
     return plan
+
+
+def _device(value, label: str, problems: list[str]) -> dict | None:
+    """what the check was made for: {"name", "path", "ids"} (detection fills it in)."""
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or set(value) - DEVICE_KEYS
+            or not isinstance(value.get("name"), str) or not value["name"].strip()):
+        problems.append(f"{label}: \"device\" must be an object with a \"name\" (and optional \"path\", \"ids\")")
+        return None
+    path = value.get("path")
+    ids = value.get("ids", [])
+    if path is not None and not isinstance(path, str):
+        problems.append(f"{label}: \"device\" path must be a string")
+        return None
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(ids) > 50:
+        problems.append(f"{label}: \"device\" ids must be a list of strings")
+        return None
+    return {"name": value["name"].strip()[:200], "path": path, "ids": [i[:300] for i in ids]}
+
+
+def _preset(value, label: str, problems: list[str]) -> dict | None:
+    """an answer recorded when the run starts, e.g. a device that was expected but not found."""
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or set(value) - {"answer", "note"}
+            or value.get("answer") not in PRESET_ANSWERS or not isinstance(value.get("note", ""), str)):
+        problems.append(f"{label}: \"preset\" must be {{\"answer\": \"doesnt-work\" or \"skip\", \"note\": text}}")
+        return None
+    return {"answer": value["answer"], "note": value.get("note", "").strip()[:MAX_LEN["instructions"]]}
 
 
 def load_plan(path) -> dict:
