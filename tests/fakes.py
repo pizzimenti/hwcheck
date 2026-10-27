@@ -226,7 +226,7 @@ def scratch_dir(test) -> Path:
     return path
 
 
-def wait_for(predicate, timeout: float = 5.0, step: float = 0.01):
+def wait_for(predicate, timeout: float = 10.0, step: float = 0.01):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         value = predicate()

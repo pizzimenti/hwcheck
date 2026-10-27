@@ -11,13 +11,12 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 import unittest
 
 from hwchecklib.cli import main
 from hwchecklib.plan import load_plan
 
-from .fakes import (BOOT_B, EXAMPLE_PLAN, ROOT, FakeClock, FakeHibernate, FakeMachine, fake_readers,
+from .fakes import (BOOT_A, BOOT_B, EXAMPLE_PLAN, ROOT, FakeClock, FakeHibernate, FakeMachine, fake_readers,
                     scratch_dir, wait_for)
 
 MANUAL2 = {"checks": [{"id": "a", "title": "a", "kind": "manual"}, {"id": "b", "title": "b", "kind": "manual"}]}
@@ -53,7 +52,7 @@ class Run:
     """hwcheck's main() in a thread, on 127.0.0.1 with a free port and fake readers."""
 
     def __init__(self, test, plan_path, state_dir, readers=None, hibernate=None, args=(), clock=None,
-                 hibernate_delay=0, detector=None):
+                 hibernate_delay=0, detector=None, timeout_clock=None):
         self.readers = readers or fake_readers()
         self.hibernate = hibernate or FakeHibernate()
         self.clock = clock or FakeClock(0.0)
@@ -62,6 +61,7 @@ class Run:
         self.ready = threading.Event()
         self.hibernate_delay = hibernate_delay
         self.detector = detector
+        self.timeout_clock = timeout_clock  # None: real time
         plan_args = ["--plan", str(plan_path)] if plan_path else []  # none: detect
         argv = [*plan_args, "--port", "0", "--state-dir", str(state_dir), *args]
         self.thread = threading.Thread(target=self._main, args=(argv,), daemon=True)
@@ -78,7 +78,7 @@ class Run:
                          out=self.out, err=self.err,
                          on_ready=on_ready, grace=0.05, poll_interval=0.02,
                          hibernate_delay=self.hibernate_delay,
-                         session_options={"sleep_clock": self.clock})
+                         session_options={"sleep_clock": self.clock}, clock=self.timeout_clock)
 
     @property
     def port(self):
@@ -165,12 +165,15 @@ class WholePlan(unittest.TestCase):
                          and s["live"]["reading"]
                          and not s["live"]["reading"]["summary"].startswith("waiting"))
             if check["kind"] == "hibernate":
+                # what is on disk at the moment the hibernate is triggered, read by the fake itself
+                on_disk = {}
+                run.hibernate.then = lambda: on_disk.update(
+                    json.loads((state_dir / "state.json").read_text(encoding="utf-8"))["hibernate"])
                 status, s = run.post("/api/hibernate", {})
                 self.assertEqual((status, s["hibernate"]["phase"]), (200, "pending"))
-                saved = json.loads((state_dir / "state.json").read_text())
-                self.assertEqual(saved["hibernate"]["phase"], "pending")  # on disk before it sleeps
                 wait_for(lambda: run.get()["hibernate"]["phase"] == "hibernating")
                 self.assertEqual(run.hibernate.calls, 1)
+                self.assertEqual((on_disk["phase"], on_disk["boot_id"]), ("pending", BOOT_A))  # before it sleeps
                 # systemctl has returned but nothing has slept: works isn't accepted yet
                 status, body = run.post("/api/answer", {"id": cur, "answer": "works", "note": "too soon"})
                 self.assertEqual(status, 409, body)
@@ -333,22 +336,29 @@ class Token(unittest.TestCase):
 class HibernateOverHttp(unittest.TestCase):
     def test_answering_in_the_delay_means_it_never_hibernates(self):
         d = scratch_dir(self)
-        run = Run(self, write_plan(d, WITH_HIB), d / "state", hibernate_delay=0.5)
+        run = Run(self, write_plan(d, WITH_HIB), d / "state", hibernate_delay=3600)
         run.post("/api/answer", {"id": "a", "answer": "works"})
         status, s = run.post("/api/hibernate", {})
         self.assertEqual((status, s["hibernate"]["phase"]), (200, "pending"))
         status, _ = run.post("/api/answer", {"id": "hibernate", "answer": "skip", "note": "changed my mind"})
         self.assertEqual(status, 200)
         self.assertEqual(run.wait(), 0)
-        time.sleep(0.7)  # past the delay: the action must not have run
+        # the run ended inside the delay, so the waiting hibernate was let go, never run;
+        # the re-check after a delay that does pass is the session test's
         self.assertEqual(run.hibernate.calls, 0)
+        results = read_results(d / "state")
+        self.assertEqual(results["checks"][-1]["answer"], "skip")
+        self.assertIsNotNone(results["finished"])
 
 
 class CommandLine(unittest.TestCase):
     def test_timeout_stops_and_keeps_what_was_answered(self):
         d = scratch_dir(self)
-        run = Run(self, write_plan(d, MANUAL2), d / "state", args=["--timeout", "0.5"])
-        run.post("/api/answer", {"id": "a", "answer": "works", "note": "fine"})
+        clock = FakeClock(0.0)
+        run = Run(self, write_plan(d, MANUAL2), d / "state", args=["--timeout", "5"], timeout_clock=clock)
+        status, _ = run.post("/api/answer", {"id": "a", "answer": "works", "note": "fine"})
+        self.assertEqual(status, 200)
+        clock.value = 5.0  # five seconds awake: time's up
         self.assertEqual(run.wait(), 3)
         self.assertIn("--resume", run.err.getvalue())
         results = read_results(d / "state")
@@ -558,9 +568,12 @@ class Detection(unittest.TestCase):
 
     def test_resume_uses_the_saved_plan_without_detecting_again(self):
         d = scratch_dir(self)
-        first = Run(self, None, d / "state", args=["--timeout", "0.3"],
+        clock = FakeClock(0.0)
+        first = Run(self, None, d / "state", args=["--timeout", "5"], timeout_clock=clock,
                     detector=FakeMachine("machine-desktop.json").detector())
-        first.post("/api/answer", {"id": "speakers", "answer": "works", "note": ""})
+        status, _ = first.post("/api/answer", {"id": "speakers", "answer": "works", "note": ""})
+        self.assertEqual(status, 200)
+        clock.value = 5.0
         self.assertEqual(first.wait(), 3)
 
         class NoDetecting:

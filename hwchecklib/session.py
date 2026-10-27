@@ -462,7 +462,9 @@ class Session:
         if self.stopping.wait(delay):
             with self.lock:
                 hib = self.state["hibernate"]
-                if hib["phase"] == "pending":
+                hid = self._hibernate_id()
+                # a run that ended because hibernate was answered in the delay is finished: leave it be
+                if hib["phase"] == "pending" and not self.state["finished"] and not (hid and self._answered(hid)):
                     hib.update(phase="failed", error="hwcheck stopped before hibernating")
                     self._changed(save=True)
             return

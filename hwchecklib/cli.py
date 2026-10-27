@@ -8,6 +8,7 @@ import re
 import signal
 import sys
 import threading
+import time
 
 from . import __version__
 from .detect import Detector, ExpectError, build_plan, load_expect, summary
@@ -68,9 +69,10 @@ def _stamp(started) -> str:
 
 def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, err=None, on_ready=None,
          grace: float = 1.5, poll_interval: float = 1.0, hibernate_delay: float = 1.0,
-         session_options: dict | None = None) -> int:
+         session_options: dict | None = None, clock=None) -> int:
     """run hwcheck. the keyword arguments are seams for tests (fake readers and detector, a
-    fake hibernate, a fake clock through session_options); the command line never sets them."""
+    fake hibernate, a fake sleep clock through session_options, a fake clock for --timeout);
+    the command line never sets them."""
     args = build_parser().parse_args(argv)
     out = out or sys.stdout
     err = err or sys.stderr
@@ -136,13 +138,13 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
     try:
         return _owned(args, store, plan, plan_label, say, problems, readers=readers, hibernate=hibernate,
                       out=out, on_ready=on_ready, grace=grace, poll_interval=poll_interval,
-                      hibernate_delay=hibernate_delay, session_options=session_options)
+                      hibernate_delay=hibernate_delay, session_options=session_options, clock=clock)
     finally:
         store.unlock()
 
 
 def _owned(args, store, plan, plan_label, say, problems, *, readers, hibernate, out, on_ready, grace,
-           poll_interval, hibernate_delay, session_options) -> int:
+           poll_interval, hibernate_delay, session_options, clock=None) -> int:
     """the run, once this process holds the state directory's lock."""
     # no other hwcheck holds this directory, so an open.html here is from a run that's gone
     # (a crash, or a machine that booted fresh): its secret is dead
@@ -215,7 +217,7 @@ def _owned(args, store, plan, plan_label, say, problems, *, readers, hibernate, 
             on_ready(server, session)
         served = True
         outcome = serve(session, server, timeout=args.timeout or None, grace=grace,
-                        poll_interval=poll_interval)
+                        poll_interval=poll_interval, clock=clock or time.monotonic)
     finally:
         for sig, old in old_handlers.items():
             signal.signal(sig, old)

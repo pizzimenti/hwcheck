@@ -214,6 +214,16 @@ class Hibernate(unittest.TestCase):
         h.session.run_hibernate(0)
         self.assertEqual(h.hibernate.calls, 0)
 
+    def test_a_run_finished_in_the_delay_is_left_as_it_was(self):
+        h = self.ready()
+        h.session.start_hibernate()
+        h.session.answer("hibernate", "skip", "not today")
+        before = h.store.state_path.read_bytes()
+        h.session.stop()  # what serve does when the run is over
+        h.session.run_hibernate(3600)  # the waiting hibernate wakes to the stop
+        self.assertEqual(h.hibernate.calls, 0)
+        self.assertEqual(h.store.state_path.read_bytes(), before)  # nothing written after the end
+
     def test_the_sleep_mark_is_saved_at_the_press(self):
         h = self.ready()
         h.clock.value = 7.5
