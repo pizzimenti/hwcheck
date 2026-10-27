@@ -12,7 +12,7 @@ import threading
 from . import __version__
 from .detect import Detector, ExpectError, build_plan, load_expect, summary
 from .plan import PlanError, load_plan, parse_plan
-from .readers import Readers
+from .readers import Readers, clean
 from .server import Server, serve
 from .session import Session, SessionError, systemctl_hibernate
 from .store import Store, StoreError
@@ -56,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def terminal_safe(text) -> str:
+    """device names come from the machine: drop escape codes and control characters before printing."""
+    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", "", clean(str(text)))
+
+
 def _stamp(started) -> str:
     digits = re.sub(r"[^0-9T]", "", str(started or ""))[:15]
     return digits or "old"
@@ -71,7 +76,7 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
     err = err or sys.stderr
 
     def say(msg: str) -> None:
-        print(f"hwcheck: {msg}", file=err, flush=True)
+        print(f"hwcheck: {terminal_safe(msg)}", file=err, flush=True)
 
     if not 0 <= args.port <= 65535:
         say("--port must be between 0 and 65535")
@@ -92,7 +97,7 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
     def problems(title: str, items) -> int:
         say(title)
         for item in items:
-            print(f"  - {item}", file=err, flush=True)
+            print(f"  - {terminal_safe(item)}", file=err, flush=True)
         return EXIT_USAGE
 
     plan, plan_label = None, args.plan
@@ -117,7 +122,7 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
         plan_label = "detected" + (f", expecting {args.expect}" if args.expect else "")
         say(f"detected {len(plan['checks'])} checks:")
         for line in summary(detected, plan):
-            print(f"  {line}", file=err, flush=True)
+            print(f"  {terminal_safe(line)}", file=err, flush=True)
 
     store = Store(args.state_dir)
     readers = readers or Readers()
@@ -162,7 +167,14 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
         return EXIT_ERROR
 
     print(server.url, file=out, flush=True)
+    try:
+        handoff = store.write_handoff(server.url)
+    except OSError as exc:
+        handoff = None
+        say(f"couldn't write {store.handoff_path}: {exc.strerror or exc}")
     say(f"open {server.url} in this machine's browser; results go to {store.results_path}")
+    if handoff:
+        say(f"to keep the secret off the browser's command line, open file://{handoff} instead")
     if on_ready:
         on_ready(server, session)
 
@@ -175,6 +187,7 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
     finally:
         if old_term is not None:
             signal.signal(signal.SIGTERM, old_term)
+        store.remove_handoff()  # its secret dies with this run
 
     if outcome == "finished":
         say(f"all checks answered; results are in {store.results_path}")

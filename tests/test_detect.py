@@ -57,6 +57,11 @@ class TwoInOne(unittest.TestCase):
         self.assertEqual(c["hibernate"]["device"]["path"], "/dev/nvme0n1p3")
         self.assertIsNone(c["hibernate"]["preset"])
 
+    def test_a_virtual_camera_is_not_a_camera(self):
+        cams = [d["path"] for d in self.detected["devices"]["camera"]]
+        self.assertNotIn("/dev/video4", cams)  # v4l2loopback's "OBS Virtual Camera"
+        self.assertEqual(len(cams), 2)
+
     def test_one_check_per_camera_not_per_video_node(self):
         cams = [c for c in self.plan["checks"] if c["kind"] == "camera"]
         self.assertEqual([(c["title"], c["device"]["path"]) for c in cams],
@@ -157,7 +162,8 @@ class MissingPen(unittest.TestCase):
         got = {c["id"]: c for c in results["checks"]}
         self.assertEqual((got["missing-pen"]["answer"], got["missing-pen"]["note"]),
                          ("doesnt-work", "expected but not detected: pen WACF2200"))
-        self.assertEqual(got["missing-pen"]["live"], {"source": "preset"})
+        self.assertEqual(got["missing-pen"]["live"],
+                         {"source": "preset", "evidence": "expected but not detected: pen WACF2200"})
         self.assertEqual(got["touch"]["device"]["name"], "Wacom Pen and multitouch sensor Finger")
         self.assertEqual(s.snapshot()["current"], "speakers")  # the person starts on the first real check
 
@@ -212,3 +218,83 @@ class Parsers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Laptops(unittest.TestCase):
+    """a laptop always gets speakers, microphone and camera checks: none at all means a lost driver."""
+
+    def test_sound_driver_failed(self):
+        m = FakeMachine("machine-2in1.json")
+        m.files["/proc/asound/cards"] = "--- no soundcards ---\n"  # sof firmware missing, say
+        m.files["/proc/asound/pcm"] = ""
+        _, plan = plan_for(m)
+        c = by_id(plan)
+        for key, title in (("speakers", "speakers: none detected"), ("microphone", "microphone: none detected")):
+            self.assertEqual((c[key]["title"], c[key]["kind"], c[key]["device"]), (title, "manual", None))
+            self.assertEqual(c[key]["preset"]["answer"], "doesnt-work")
+        self.assertEqual(c["speakers"]["preset"]["note"],
+                         "none detected: no playback device in /proc/asound/pcm; no sound card in /proc/asound/cards")
+        self.assertIn("no capture device", c["microphone"]["preset"]["note"])
+        self.assertEqual(c["camera-1"]["kind"], "camera")  # the cameras are still there
+
+    def test_unreadable_sound_and_only_a_virtual_camera(self):
+        m = FakeMachine("machine-2in1.json").remove("/proc/asound")
+        for node in ("video0", "video1", "video2", "video3"):
+            m.remove(f"/sys/class/video4linux/{node}")
+        _, plan = plan_for(m)
+        c = by_id(plan)
+        self.assertIn("can't read /proc/asound/cards", c["speakers"]["preset"]["note"])
+        self.assertEqual(c["camera"]["title"], "camera: none detected")
+        self.assertEqual(c["camera"]["preset"]["note"],
+                         "none detected: no camera in /sys/class/video4linux "
+                         "(left out as virtual: video4 (OBS Virtual Camera))")
+
+    def test_a_desktop_without_them_gets_no_such_checks(self):
+        m = FakeMachine("machine-desktop.json").remove("/proc/asound")
+        _, plan = plan_for(m)
+        # its front headphone jack switch still shows; no speakers, microphone or camera checks
+        self.assertEqual(list(by_id(plan)), ["headphones", "keys", "external-display", "hibernate"])
+
+    def test_a_lid_alone_makes_it_a_laptop(self):
+        m = FakeMachine("machine-2in1.json").remove("/sys/class/power_supply").remove("/sys/class/video4linux")
+        _, plan = plan_for(m)
+        self.assertEqual(by_id(plan)["camera"]["preset"]["answer"], "doesnt-work")
+
+
+class Limits(unittest.TestCase):
+    def test_many_display_ports_still_make_a_plan(self):
+        m = FakeMachine("machine-2in1.json")
+        for n in range(3, 63):  # 60 more connectors, as a dock farm might show
+            m.files[f"/sys/class/drm/card1-DP-{n}/status"] = "disconnected\n"
+        _, plan = plan_for(m)  # parse_plan inside: refuses more than 50 ids
+        dev = by_id(plan)["external-display"]["device"]
+        self.assertLessEqual(len(dev["ids"]), 40)
+        self.assertEqual(dev["ids"][-1], "(+24 more)")  # 63 ports: 39 kept and a count of the rest
+        self.assertTrue(dev["name"].endswith("(+51 more)"))
+        self.assertLessEqual(len(dev["name"]), 200)
+
+    def test_a_long_expect_pattern_makes_a_short_title(self):
+        long = "WACF2200" + "x" * 150
+        _, plan = plan_for(FakeMachine("machine-2in1-no-pen.json"), [{"kind": "pen", "match": long}])
+        title = by_id(plan)["missing-pen"]["title"]
+        self.assertEqual(len(title), 120)
+        self.assertTrue(title.endswith("…"))
+        self.assertIn(long, by_id(plan)["missing-pen"]["preset"]["note"])  # the note keeps it whole
+
+    def test_a_pattern_over_200_characters_is_refused(self):
+        path = scratch_dir(self) / "expect.json"
+        path.write_text(json.dumps([{"kind": "pen", "match": "x" * 201}]), encoding="utf-8")
+        with self.assertRaises(ExpectError) as ctx:
+            load_expect(path)
+        self.assertIn("longer than 200", str(ctx.exception))
+
+    def test_device_names_are_cleaned(self):
+        m = FakeMachine("machine-2in1.json")
+        m.files["/sys/class/video4linux/video0/name"] = "Evil\x1b[2J\x1b]0;owned\x07 Cam\n"
+        detected, plan = plan_for(m)
+        name = by_id(plan)["camera-1"]["device"]["name"]
+        self.assertNotIn("\x1b", name)
+        self.assertNotIn("\x07", name)
+        self.assertTrue(name.startswith("Evil"))
+        for line in summary(detected, plan):
+            self.assertNotIn("\x1b", line)

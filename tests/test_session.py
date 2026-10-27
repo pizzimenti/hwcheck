@@ -280,6 +280,26 @@ class Hibernate(unittest.TestCase):
             h.session.start_hibernate()
 
 
+class Presets(unittest.TestCase):
+    def test_a_preset_can_be_reanswered_but_not_as_works_and_keeps_its_evidence(self):
+        h = Harness(self, [*MANUAL[:2], {"id": "missing-pen", "title": "expected but not detected: pen WACF2200",
+                                         "kind": "manual", "preset": {"answer": "doesnt-work",
+                                                                      "note": "expected but not detected: pen WACF2200"}}])
+        miss = h.by_id()["missing-pen"]
+        self.assertEqual((miss["answer"], miss["live"]["evidence"]),
+                         ("doesnt-work", "expected but not detected: pen WACF2200"))
+        self.assertEqual(h.session.snapshot()["current"], "a")  # starts on the first open check
+        h.session.select("missing-pen")
+        with self.assertRaises(SessionError) as ctx:
+            h.session.answer("missing-pen", "works", "it's there now")
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertIn("doesn't work or skip", str(ctx.exception))
+        h.session.answer("missing-pen", "skip", "this unit came without the pen")
+        miss = h.by_id()["missing-pen"]
+        self.assertEqual((miss["answer"], miss["note"]), ("skip", "this unit came without the pen"))
+        self.assertEqual(miss["live"], {"source": "preset", "evidence": "expected but not detected: pen WACF2200"})
+
+
 class Resume(unittest.TestCase):
     def pending(self, **kw):
         h = Harness(self, [MANUAL[0], MANUAL[1], HIB], **kw)

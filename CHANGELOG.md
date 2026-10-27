@@ -38,15 +38,22 @@ Each version's heading says whether it was a major, minor or patch change.
   log's hibernation lines from both boots) and, in the same boot, the time
   slept (none means it never hibernated, and it can be tried again).
 - A secret made for each run, in the printed address (`?t=`), required on
-  every api request, beside the host and origin checks.
+  every api request, beside the host and origin checks. The page moves it
+  into session storage and out of the address bar, and says so plainly when
+  the run behind it was restarted. A private hand-off page (`open.html`, 0600)
+  lets a browser be started without the secret on its command line.
 - Detection, the default without `--plan`: the plan is built read-only, as
   the person, from the hardware the machine has (input devices, sound cards,
   cameras, fprintd, iio accelerometers, lid, batteries, display ports,
   bluetooth, wifi, and swap against memory for hibernate). Each check carries
   the device it was made for, on the page and in the results. `--expect FILE`
   lists what the model should have; each expected device not detected becomes
-  a failing check. `--detect --print-plan` prints the plan and exits. Plans
-  may carry `device` and `preset` (an answer recorded at the start).
+  a failing check. On a laptop (a battery or a lid), speakers, microphone and
+  camera checks are always made, and start as doesn't work with the evidence
+  when none is detected. `--detect --print-plan` prints the plan and exits.
+  Plans may carry `device` and `preset` (an answer recorded at the start; a
+  preset check can be answered again only as doesn't work or skip, and keeps
+  its evidence).
 - State and results are written atomically to `~/.local/state/hwcheck/` after
   every answer; an unfinished run must be resumed or explicitly replaced
   (`--new`), and earlier runs are kept, renamed.

@@ -1,5 +1,5 @@
 {
-  "about": "a lenovo thinkpad x1 yoga gen 7 (2-in-1): wacom touch and pen, two cameras (rgb and ir), sof audio, fingerprint, accelerometer",
+  "about": "a lenovo thinkpad x1 yoga gen 7 (2-in-1): wacom touch and pen, two cameras (rgb and ir), sof audio, fingerprint, accelerometer; a v4l2loopback virtual camera that isn't hardware",
   "include": {
     "/proc/bus/input/devices": "input-devices-2in1.txt"
   },
@@ -43,7 +43,9 @@
     "/sys/class/net/wlan0/phy80211/name": "phy0\n",
     "/sys/class/net/wlan0/device/uevent": "DRIVER=iwlwifi\nPCI_CLASS=28000\nPCI_ID=8086:51F0\nPCI_SUBSYS_ID=8086:0090\nPCI_SLOT_NAME=0000:00:14.3\nMODALIAS=pci:v00008086d000051F0sv00008086sd00000090bc02sc80i00\n",
     "/proc/swaps": "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n/dev/nvme0n1p3                          partition\t33554428\t0\t\t-2\n/dev/zram0                              partition\t8388604\t\t0\t\t100\n",
-    "/proc/meminfo": "MemTotal:       32479932 kB\nMemFree:        28123456 kB\nMemAvailable:   30123456 kB\n"
+    "/proc/meminfo": "MemTotal:       32479932 kB\nMemFree:        28123456 kB\nMemAvailable:   30123456 kB\n",
+    "/sys/class/video4linux/video4/name": "OBS Virtual Camera\n",
+    "/sys/class/video4linux/video4/index": "0\n"
   },
   "links": {
     "/sys/class/video4linux/video0/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.0",
@@ -51,7 +53,8 @@
     "/sys/class/video4linux/video2/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.2",
     "/sys/class/video4linux/video3/device": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.2",
     "/sys/bus/iio/devices/iio:device0": "/sys/devices/pci0000:00/0000:00:12.0/{33AECD58-B679-4E54-9BD9-A04D34F0C226}/001F:8087:0AC2.0003/HID-SENSOR-200073.3.auto/iio:device0",
-    "/sys/bus/iio/devices/iio:device1": "/sys/devices/pci0000:00/0000:00:12.0/{33AECD58-B679-4E54-9BD9-A04D34F0C226}/001F:8087:0AC2.0003/HID-SENSOR-200041.6.auto/iio:device1"
+    "/sys/bus/iio/devices/iio:device1": "/sys/devices/pci0000:00/0000:00:12.0/{33AECD58-B679-4E54-9BD9-A04D34F0C226}/001F:8087:0AC2.0003/HID-SENSOR-200041.6.auto/iio:device1",
+    "/sys/class/video4linux/video4": "/sys/devices/virtual/video4linux/video4"
   },
   "commands": {
     "busctl --system call net.reactivated.Fprint /net/reactivated/Fprint/Manager net.reactivated.Fprint.Manager GetDevices": "ao 1 \"/net/reactivated/Fprint/Device/0\"\n",

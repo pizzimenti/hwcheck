@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import tempfile
@@ -20,8 +21,12 @@ def default_dir() -> Path:
 
 def atomic_write_json(path: Path, obj) -> None:
     """write obj as json to path so a reader sees the old file or the new one, never half."""
+    atomic_write_bytes(path, (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """the same for any bytes; the file is the owner's alone (0600)."""
     path = Path(path)
-    data = (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -58,6 +63,24 @@ class Store:
         self.dir = Path(directory) if directory else default_dir()
         self.state_path = self.dir / "state.json"
         self.results_path = self.dir / "results.json"
+        self.handoff_path = self.dir / "open.html"
+
+    def write_handoff(self, url: str) -> Path:
+        """a page only the owner can read that forwards to the address with its secret, so a
+        browser can be started with a file path on its command line instead of the secret."""
+        self.ensure()
+        safe = html.escape(url, quote=True)
+        page = ("<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n"
+                f"<meta http-equiv=\"refresh\" content=\"0;url={safe}\">\n<title>hwcheck</title>\n"
+                f"<p>opening hwcheck… if nothing happens, <a href=\"{safe}\">open it here</a>.</p>\n")
+        atomic_write_bytes(self.handoff_path, page.encode("utf-8"))
+        return self.handoff_path
+
+    def remove_handoff(self) -> None:
+        try:
+            self.handoff_path.unlink()
+        except FileNotFoundError:
+            pass
 
     def ensure(self) -> None:
         self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)

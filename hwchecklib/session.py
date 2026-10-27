@@ -67,6 +67,11 @@ class SessionError(Exception):
         super().__init__(message)
 
 
+def _preset_live(check: dict) -> dict:
+    """what detection saw, kept with a preset check however it is answered later."""
+    return {"source": "preset", "evidence": check["preset"]["note"]}
+
+
 def _new_hibernate() -> dict:
     return {"phase": "idle", "boot_id": None, "at": None, "error": None, "boot_id_after": None,
             "slept_seconds": None, "resumed_at": None, "kernel_log": None, "sleep_mark": None}
@@ -119,7 +124,7 @@ class Session:
             # answers the plan carries in (an expected device that wasn't found, hibernate with no swap)
             if c.get("preset"):
                 state["answers"][c["id"]] = {"answer": c["preset"]["answer"], "note": c["preset"]["note"],
-                                             "at": stamp, "live": {"source": "preset"}}
+                                             "at": stamp, "live": _preset_live(c)}
         s = cls(state, store, readers, hibernate_action, now, sleep_clock)
         state["current"] = s._next_check(None)
         if state["current"] is None:
@@ -240,6 +245,8 @@ class Session:
         }
 
     def _live_for(self, check: dict, observed) -> dict | None:
+        if check.get("preset"):
+            return _preset_live(check)
         kind_where = where(check["kind"])
         if kind_where == "live":
             lv = self.live
@@ -358,6 +365,9 @@ class Session:
         self._check_resumed()  # an answer just after a real resume must see it
         with self.lock:
             check = self._guard_current(check_id)
+            if check.get("preset") and answer == "works":
+                raise SessionError(f"detection recorded this before the run began ({check['preset']['note']}); "
+                                   "it can be doesn't work or skip", 409)
             kind = check["kind"]
             need_live = where(kind) == "live" and (
                 not self.live or self.live["check"] != check_id or self.live["reading"] is None)

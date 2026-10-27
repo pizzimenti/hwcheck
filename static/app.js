@@ -32,8 +32,28 @@ let busy = false;   // an answer is on its way
 let events = null;  // the server-sent event stream
 let listIds = "";
 const drafts = {};  // notes typed but not saved yet, by check id
-// this run's secret, from the address hwcheck printed; every api request carries it
-const TOKEN = new URLSearchParams(window.location.search).get("t") || "";
+// this run's secret, from the address hwcheck printed; every api request carries it.
+// it moves from the address bar into this tab's session storage, so it isn't left on show
+// (or in a copied address); a reload of this tab still finds it.
+const TOKEN_KEY = "hwcheck-token";
+const TOKEN = takeToken();
+
+function takeToken() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("t");
+  if (fromUrl) {
+    try { window.sessionStorage.setItem(TOKEN_KEY, fromUrl); } catch (e) { /* storage off: keep it in memory */ }
+    params.delete("t");
+    const rest = params.toString();
+    try {
+      window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+    } catch (e) { /* an old browser: the address keeps it */ }
+    return fromUrl;
+  }
+  try { return window.sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+
+const RESTARTED = "hwcheck was restarted, or this page is from an earlier run: open the address it printed last.";
 
 async function api(path, body) {
   const headers = {"X-Hwcheck-Token": TOKEN};
@@ -43,6 +63,7 @@ async function api(path, body) {
   const res = await fetch(path, opts);
   let data = {};
   try { data = await res.json(); } catch (e) { /* no body */ }
+  if (res.status === 403 && TOKEN) throw new Error(RESTARTED);
   if (!res.ok) throw new Error(data.error || `hwcheck answered ${res.status}`);
   return data;
 }
@@ -142,6 +163,11 @@ function renderButtons(s, check) {
   works.disabled = bad.disabled = skip.disabled = busy;
   works.title = "";
   bad.textContent = "doesn't work";
+  if (check.preset) {
+    // detection recorded this before the run began (an expected device missing, say)
+    works.disabled = true;
+    works.title = "recorded by detection: it can be doesn't work or skip";
+  }
   if (check.kind === "hibernate") {
     const ph = s.hibernate.phase;
     if (ph === "fresh-boot") {
@@ -209,6 +235,11 @@ function connect() {
   };
   events.onerror = () => {
     if (state && state.finished) { if (events) events.close(); return; }
+    if (events && events.readyState === EventSource.CLOSED) {
+      // a refused stream (a 403: another run's secret) is never retried by the browser
+      $("conn").textContent = RESTARTED;
+      return;
+    }
     $("conn").textContent = "lost touch with hwcheck; retrying…";
   };
 }

@@ -15,7 +15,7 @@ import os
 import re
 from pathlib import Path
 
-from .readers import Result, ToolMissing, parse_input_devices, read_text_file, run_command
+from .readers import Result, ToolMissing, clean, parse_input_devices, read_text_file, run_command
 
 # evdev numbers (linux/input-event-codes.h)
 EV_KEY, EV_ABS, EV_SW = 1, 3, 5
@@ -28,6 +28,12 @@ SW_LID, SW_TABLET_MODE, SW_HEADPHONE_INSERT = 0, 1, 2
 BUILTIN_CONNECTORS = ("eDP", "LVDS", "DSI", "Writeback", "Virtual")
 HDMI_PCM_RE = re.compile(r"hdmi|displayport|\bdp\b", re.IGNORECASE)
 PEN_NAME_RE = re.compile(r"\b(pen|stylus)\s*$", re.IGNORECASE)
+VIRTUAL_CAMERA_RE = re.compile(r"loopback|dummy|virtual", re.IGNORECASE)
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+MAX_IDS = 40          # the plan takes at most 50
+MAX_TITLE = 120       # the plan's limit
+MAX_MATCH = 200
+LAPTOP_ALWAYS = ("speakers", "microphone", "camera")  # a laptop without one of these lost a driver
 
 # what a device kind is called in --expect (and the aliases it accepts)
 DEVICE_KINDS = (
@@ -105,8 +111,21 @@ class ExpectError(ValueError):
         super().__init__("; ".join(self.problems))
 
 
+def plain(text) -> str:
+    """text from the machine, safe to show anywhere: no colour codes or control characters."""
+    return CONTROL_RE.sub("", clean(str(text or ""))).strip()
+
+
+def fit(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def device(name: str, path: str | None = None, ids=()) -> dict:
-    return {"name": name, "path": path, "ids": [i for i in dict.fromkeys(ids) if i]}
+    ids = [i for i in dict.fromkeys(fit(plain(i), 300) for i in ids) if i]
+    if len(ids) > MAX_IDS:  # keep a count of the rest rather than refuse the plan
+        ids = ids[: MAX_IDS - 1] + [f"(+{len(ids) - MAX_IDS + 1} more)"]
+    return {"name": fit(plain(name), 200) or "unnamed", "path": fit(plain(path), 300) if path else None,
+            "ids": ids}
 
 
 def _bit(n: int, i: int) -> bool:
@@ -201,6 +220,7 @@ class Detector:
     # -- the whole machine
     def detect(self) -> dict:
         self.notes = []
+        self.evidence: dict[str, str] = {}
         found: dict[str, list[dict]] = {k: [] for k in DEVICE_KINDS}
         inputs = parse_input_devices(self._read("/proc/bus/input/devices", note=True) or "")
         self._inputs(inputs, found)
@@ -216,7 +236,8 @@ class Detector:
         found["bluetooth"] = self._bluetooth()
         found["wifi"] = self._wifi()
         found["hibernate"], hibernate_skip = self._swap()
-        return {"devices": found, "hibernate_skip": hibernate_skip, "notes": list(self.notes)}
+        return {"devices": found, "hibernate_skip": hibernate_skip, "notes": list(self.notes),
+                "evidence": dict(self.evidence)}
 
     def _inputs(self, inputs: list[dict], found: dict) -> None:
         for d in inputs:
@@ -245,8 +266,20 @@ class Detector:
                     found["headphones"].append(dev)
 
     def _audio(self, inputs: list[dict], found: dict) -> None:
-        cards = parse_asound_cards(self._read("/proc/asound/cards") or "")
-        pcms = parse_asound_pcm(self._read("/proc/asound/pcm") or "")
+        cards_text = self._read("/proc/asound/cards")
+        pcm_text = self._read("/proc/asound/pcm")
+        cards = parse_asound_cards(cards_text or "")
+        pcms = parse_asound_pcm(pcm_text or "")
+        # what to say if a laptop turns out to have no speakers or microphone
+        if cards_text is None:
+            card_words = "can't read /proc/asound/cards"
+        elif not cards:
+            card_words = "no sound card in /proc/asound/cards"
+        else:
+            card_words = "sound cards: " + ", ".join(f"{n} {c['id']} ({c['driver']})" for n, c in sorted(cards.items()))
+        pcm_where = "/proc/asound/pcm" if pcm_text is not None else "/proc/asound/pcm (unreadable)"
+        self.evidence["speakers"] = f"no playback device in {pcm_where}; {card_words}"
+        self.evidence["microphone"] = f"no capture device in {pcm_where}; {card_words}"
         for p in pcms:
             card = cards.get(p["card"], {})
             label = f"card {p['card']} {card.get('id') or '?'}: {p['id']}"
@@ -269,7 +302,7 @@ class Detector:
                     break
 
     def _cameras(self) -> list[dict]:
-        cams, seen = [], set()
+        cams, seen, left_out = [], set(), []
         base = "/sys/class/video4linux"
         for node in sorted(self._ls(base), key=lambda n: (len(n), n)):
             if not re.match(r"^video\d+$", node):
@@ -277,13 +310,19 @@ class Detector:
             index = (self._read(f"{base}/{node}/index") or "0").strip()
             if index != "0":  # metadata and extra nodes of a camera already counted
                 continue
+            name = (self._read(f"{base}/{node}/name") or node).strip()
+            # v4l2loopback and the like: no hardware behind them
+            if "/devices/virtual/" in self.realpath(f"{base}/{node}") or VIRTUAL_CAMERA_RE.search(name):
+                left_out.append(f"{node} ({plain(name)})")
+                continue
             parent = self.realpath(f"{base}/{node}/device")
             if parent in seen:
                 continue
             seen.add(parent)
-            name = (self._read(f"{base}/{node}/name") or node).strip()
             modalias = (self._read(f"{base}/{node}/device/modalias") or "").strip()
             cams.append(device(name, f"/dev/{node}", [name, parent, modalias, _usb_id(modalias)]))
+        self.evidence["camera"] = "no camera in /sys/class/video4linux" + (
+            f" (left out as virtual: {', '.join(left_out)})" if left_out else "")
         return cams
 
     def _fingerprints(self) -> list[dict]:
@@ -399,6 +438,9 @@ def load_expect(path) -> list[dict]:
         if not isinstance(match, str) or not match.strip():
             problems.append(f"entry {n}: \"match\" must be a non-empty string")
             continue
+        if len(match) > MAX_MATCH:
+            problems.append(f"entry {n}: \"match\" is longer than {MAX_MATCH} characters")
+            continue
         try:
             re.compile(match)
         except re.error as exc:
@@ -418,11 +460,13 @@ def matches(dev: dict, pattern: str) -> bool:
 def build_plan(detected: dict, expect: list[dict] | None = None) -> dict:
     """a plan (the same format as --plan) from detect()'s result."""
     found = detected["devices"]
+    evidence = detected.get("evidence", {})
+    laptop = bool(found.get("power") or found.get("lid"))
     checks = []
 
     def add(cid: str, key: str, dev: dict | None, title: str | None = None, preset=None):
         t_title, kind, instructions, expect_text = TEXT[key]
-        c = {"id": cid, "title": title or t_title, "kind": kind, "instructions": instructions,
+        c = {"id": cid, "title": fit(title or t_title, MAX_TITLE), "kind": kind, "instructions": instructions,
              "expect": expect_text, "device": dev}
         if preset:
             c["preset"] = preset
@@ -430,7 +474,19 @@ def build_plan(detected: dict, expect: list[dict] | None = None) -> dict:
 
     for key in ORDER:
         devs = found.get(key, [])
-        if key == "camera":
+        if not devs and laptop and key in LAPTOP_ALWAYS:
+            # a laptop has these; none at all usually means a driver or its firmware didn't load
+            title = TEXT[key][0]
+            why = evidence.get(key) or "nothing found"
+            checks.append({
+                "id": key, "title": f"{title}: none detected", "kind": "manual",
+                "instructions": f"this is a laptop (it has a battery or a lid), which should have a {title}, "
+                                f"but none was detected ({why}). a driver or its firmware not loading is the "
+                                "usual cause; add anything you know.",
+                "expect": "", "device": None,
+                "preset": {"answer": "doesnt-work", "note": f"none detected: {why}"},
+            })
+        elif key == "camera":
             for i, cam in enumerate(devs, start=1):
                 many = len(devs) > 1
                 add(f"camera-{i}" if many else "camera", "camera", cam,
@@ -441,8 +497,9 @@ def build_plan(detected: dict, expect: list[dict] | None = None) -> dict:
                 add(key, key, devs[0] if devs else None)
         elif key in ("keys", "external-display"):
             if key == "external-display" and devs:
-                ports = ", ".join(d["name"] for d in devs)
-                dev = device(f"ports: {ports}", "/sys/class/drm", [i for d in devs for i in d["ids"]])
+                shown = ", ".join(d["name"] for d in devs[:12])
+                more = f" (+{len(devs) - 12} more)" if len(devs) > 12 else ""
+                dev = device(f"ports: {shown}{more}", "/sys/class/drm", [d["name"] for d in devs])
             else:
                 dev = devs[0] if devs else None
             add(key, key, dev)  # always: every machine has a keyboard and should drive a display
@@ -458,7 +515,7 @@ def build_plan(detected: dict, expect: list[dict] | None = None) -> dict:
         cid = base if seen_ids[base] == 1 else f"{base}-{seen_ids[base]}"
         what = f"expected but not detected: {e['kind']} {e['match']}"
         checks.append({
-            "id": cid[:48], "title": what, "kind": "manual",
+            "id": cid[:48], "title": fit(what, MAX_TITLE), "kind": "manual",
             "instructions": f"this model should have a {e['kind']} device matching \"{e['match']}\", but none "
                             "was detected. a missing driver or firmware is the usual cause; add anything you know.",
             "expect": "", "device": None,

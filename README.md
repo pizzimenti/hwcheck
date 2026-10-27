@@ -27,12 +27,31 @@ python3 hwcheck.py --plan examples/plan-2in1.json        # a plan of your own in
 ```
 
 the first line it prints is the page's address (`http://127.0.0.1:8770/?t=…`);
-open it in the machine's own browser, in the person's desktop session. the `t`
-is a secret made for this run: the page sends it with every request, and
-hwcheck refuses any request without it, so another user or program on the
-machine can't read the notes, answer, or set off a hibernate. the page fetches
-nothing from anywhere else, and the camera and microphone work because
+open it in the machine's own browser, in the person's desktop session. the page
+fetches nothing from anywhere else, and the camera and microphone work because
 `127.0.0.1` counts as a secure origin.
+
+the `t` is a secret made for this run: the page sends it with every request,
+and hwcheck refuses any request without it, so another local user can't read
+the notes, answer, or set off a hibernate. on first load the page moves it from
+the address bar into the tab's session storage, so it isn't left on show or in
+a copied address.
+
+how it's handed to the browser matters. a command line is readable by every
+local user (`/proc/<pid>/cmdline`, unless `/proc` is mounted with `hidepid`),
+so `firefox 'http://127.0.0.1:8770/?t=…'` shows the secret to them for as long
+as that process runs. instead, open the page hwcheck writes for this, which
+only its owner can read and which forwards to the address:
+
+```sh
+firefox "file://$HOME/.local/state/hwcheck/open.html"     # or xdg-open, or any browser
+```
+
+it is written (mode 0600) when the server starts and removed when it stops.
+pasting the address into a browser that's already open works as well. the
+limits, plainly: the secret is on hwcheck's own output, so anyone who can see
+that terminal has it; and it does nothing against programs running as the same
+user, which can read the state files and that page anyway.
 
 | option | what it does |
 |---|---|
@@ -58,6 +77,7 @@ written atomically after every answer and every hibernate step:
 - `results.json`: what the provisioner reads (format below).
 - `state.json`: hwcheck's own: the plan, the check on screen, the answers and the
   hibernate state.
+- `open.html`: the private hand-off page above, only while the server runs.
 
 ## what it checks
 
@@ -97,19 +117,30 @@ detection only reads, as the person running it (no root): `/proc`, `/sys`, and
 two tools over the user's own rights. a source it can't read counts as nothing
 there, and is noted in the terminal. every check it makes carries the device it
 was made for (`device`: name, path and the ids `--expect` matches against), on
-the page and in the results.
+the page and in the results. names are stripped of escape codes and control
+characters before they're shown or printed.
+
+on a laptop (a battery or a lid), speakers, microphone and camera checks are
+always made: if none is detected, the check is titled "speakers: none
+detected" and starts as doesn't work, with the evidence (for example
+`no playback device in /proc/asound/pcm; no sound card in /proc/asound/cards`),
+because a laptop without them has usually lost a driver or its firmware.
+
+asking fprintd which readers it has goes over d-bus, which can start fprintd on
+demand; it stops itself when idle. if fprintd isn't installed, there is no
+fingerprint check (list the reader in `--expect` to have its absence fail).
 
 | check | source | made when |
 |---|---|---|
 | speakers | `/proc/asound/pcm`, `/proc/asound/cards` | a playback pcm that isn't hdmi or displayport |
 | microphone | `/proc/asound/pcm` | a capture pcm (a laptop's dmic is preferred as its device) |
 | headphones | the jack switch in `/proc/bus/input/devices` (`SW_HEADPHONE_INSERT`), else `pactl list sinks` | a headphone jack switch, or a sink port named headphones |
-| camera (one per camera) | `/sys/class/video4linux/video*` (`name`, `index`, `device`) | a capture node (index 0), one per physical device, so metadata nodes don't count twice |
+| camera (one per camera) | `/sys/class/video4linux/video*` (`name`, `index`, `device`) | a capture node (index 0), one per physical device, so metadata nodes don't count twice; virtual nodes (v4l2loopback and the like) left out |
 | touch | `/proc/bus/input/devices` | a direct (`INPUT_PROP_DIRECT`) absolute device that isn't a pen |
 | pen | `/proc/bus/input/devices` | `BTN_TOOL_PEN`, `ABS_TILT_X`, or a name ending in pen or stylus |
 | keys | `/proc/bus/input/devices` | always; its device is the first input with q, a, z and space |
 | touchpad | `/proc/bus/input/devices` | `INPUT_PROP_POINTER` with `BTN_TOOL_FINGER` and multitouch |
-| fingerprint | `busctl --system call net.reactivated.Fprint … GetDevices` | fprintd lists a reader; skipped if fprintd is absent |
+| fingerprint | `busctl --system call net.reactivated.Fprint … GetDevices` (d-bus; may start fprintd) | fprintd lists a reader; skipped if fprintd is absent |
 | tablet-mode, rotation | the tablet-mode switch (`SW_TABLET_MODE`) in `/proc/bus/input/devices`; an accelerometer in `/sys/bus/iio/devices` (`in_accel_*`) | either one: both checks then, so a 2-in-1 missing the driver for the other shows it |
 | power (charger) | `/sys/class/power_supply/*/type` | a battery that isn't a peripheral's (`scope` not `Device`) |
 | lid | `/proc/acpi/button/lid/*`, else the lid switch (`SW_LID`) | a lid |
@@ -138,7 +169,9 @@ device of that kind: its name, path and ids (for an input device, its phys
 and sysfs path and `vendor:product`; for a usb camera or bluetooth controller,
 its `vendor:product`). each entry no device matches becomes a check titled
 `expected but not detected: pen WACF2200`, recorded as doesn't work from the
-start. [examples/expect-2in1.json](examples/expect-2in1.json) lists the sample
+start. a title longer than 120 characters is shortened; the note keeps the
+whole pattern, which may be up to 200 characters.
+[examples/expect-2in1.json](examples/expect-2in1.json) lists the sample
 2-in-1's devices. `--detect --print-plan` shows every detected device's ids,
 which is the easiest way to write one.
 
@@ -197,8 +230,10 @@ boot (`journalctl -k -b 0`) and, after a fresh boot, from the boot before
   detection fills it in.
 - `preset`: optional; an answer recorded when the run starts,
   `{"answer": "doesnt-work" or "skip", "note": "why"}`. detection uses it for
-  expected devices it didn't find and for hibernate without enough swap. a plan
-  can't preset works.
+  expected devices it didn't find, a laptop's missing speakers, microphone or
+  camera, and hibernate without enough swap. a plan can't preset works, and the
+  person can answer a preset check again only as doesn't work or skip; the
+  preset's evidence stays in its `live` either way.
 - at most one `hibernate` check, and it must be the last.
 
 a bad plan is refused before anything starts, with every problem listed
@@ -234,7 +269,7 @@ may change.
 ```
 
 every check in the plan is listed, in plan order. `live` depends on the kind
-(a preset answer has `{"source": "preset"}`):
+(a preset check has `{"source": "preset", "evidence": "…"}`):
 
 - **page checks**: `{"source": "page", …}` with what the page measured: the
   tones played, the microphone's device and peak level, cameras found, the most

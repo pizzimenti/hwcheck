@@ -308,6 +308,18 @@ class Token(unittest.TestCase):
         self.assertEqual(conn.getresponse().status, 200)
         conn.close()
 
+    def test_a_private_page_hands_the_address_to_a_browser_and_goes_with_the_run(self):
+        d = scratch_dir(self)
+        run = Run(self, write_plan(d, MANUAL2), d / "state")
+        handoff = d / "state" / "open.html"
+        self.assertEqual(oct(handoff.stat().st_mode & 0o777), "0o600")
+        page = handoff.read_text(encoding="utf-8")
+        self.assertIn(f'content="0;url={run.server.url}"', page)
+        self.assertIn(f"file://{handoff}", run.err.getvalue())
+        run.session.stop()
+        run.wait()
+        self.assertFalse(handoff.exists())
+
     def test_each_run_has_its_own_token(self):
         d = scratch_dir(self)
         plan = write_plan(d, MANUAL2)
