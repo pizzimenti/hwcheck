@@ -635,6 +635,11 @@ function liveView(area, check) {
 function hibernate(area, check, s) {
   const h = s.hibernate;
   const p = (text, cls) => el("p", {class: cls || "", text});
+  if (check.preset) {
+    // detection skipped it (too little swap, say): no button to start it
+    area.append(p(`detection skipped this check: ${check.note || "no reason given"}`, "warn"));
+    return null;
+  }
   if (h.phase === "idle" || h.phase === "failed") {
     if (h.phase === "failed") area.append(p(`hibernate didn't start: ${h.error || "no reason given"}`, "warn"));
     area.append(p("save anything open in other windows first. the button records that hibernate is under way, then the machine hibernates. once the screen is dark and the machine is off, turn it back on with the power button; this page will ask how it went."));

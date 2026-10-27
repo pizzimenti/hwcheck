@@ -24,7 +24,7 @@ EXIT_ERROR = 1
 EXIT_USAGE = 2
 EXIT_TIMEOUT = 3
 EXIT_INTERRUPTED = 130  # ctrl-c
-EXIT_STOPPED = 143      # sigterm
+EXIT_STOPPED = 143      # sigterm (a signal adds its number to 128: sighup is 129)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -125,6 +125,7 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
             print(f"  {terminal_safe(line)}", file=err, flush=True)
 
     store = Store(args.state_dir)
+    store.remove_handoff()  # one left by a run that crashed or a machine that booted fresh: its secret is dead
     readers = readers or Readers()
     hibernate = hibernate or systemctl_hibernate
     try:
@@ -166,28 +167,41 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
         readers.release()
         return EXIT_ERROR
 
-    print(server.url, file=out, flush=True)
-    try:
-        handoff = store.write_handoff(server.url)
-    except OSError as exc:
-        handoff = None
-        say(f"couldn't write {store.handoff_path}: {exc.strerror or exc}")
-    say(f"open {server.url} in this machine's browser; results go to {store.results_path}")
-    if handoff:
-        say(f"to keep the secret off the browser's command line, open file://{handoff} instead")
-    if on_ready:
-        on_ready(server, session)
+    # sigterm, and sighup (the terminal or tmux pane closing), stop it the way an answer would:
+    # cleanly, saved, the hand-off page removed. installed before that page is written.
+    stopped_by: list[int] = []
 
-    old_term = None
+    def on_signal(signum, _frame):
+        stopped_by.append(signum)
+        session.stop()
+
+    old_handlers = {}
     if threading.current_thread() is threading.main_thread():
-        old_term = signal.signal(signal.SIGTERM, lambda *_: session.stop())
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            old_handlers[sig] = signal.signal(sig, on_signal)
+    served = False
     try:
+        print(server.url, file=out, flush=True)
+        try:
+            handoff = store.write_handoff(server.url)
+        except OSError as exc:
+            handoff = None
+            say(f"couldn't write {store.handoff_path}: {exc.strerror or exc}")
+        say(f"open {server.url} in this machine's browser; results go to {store.results_path}")
+        if handoff:
+            say(f"to keep the secret off the browser's command line, open file://{handoff} instead")
+        if on_ready:
+            on_ready(server, session)
+        served = True
         outcome = serve(session, server, timeout=args.timeout or None, grace=grace,
                         poll_interval=poll_interval)
     finally:
-        if old_term is not None:
-            signal.signal(signal.SIGTERM, old_term)
+        for sig, old in old_handlers.items():
+            signal.signal(sig, old)
         store.remove_handoff()  # its secret dies with this run
+        if not served:
+            server.server_close()
+            readers.release()
 
     if outcome == "finished":
         say(f"all checks answered; results are in {store.results_path}")
@@ -197,4 +211,6 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
         say(f"stopped after --timeout with {left} check(s) left; run again with --resume to carry on")
         return EXIT_TIMEOUT
     say(f"stopped with {left} check(s) left; run again with --resume to carry on")
-    return EXIT_INTERRUPTED if outcome == "interrupted" else EXIT_STOPPED
+    if outcome == "interrupted":
+        return EXIT_INTERRUPTED
+    return 128 + stopped_by[0] if stopped_by else EXIT_STOPPED

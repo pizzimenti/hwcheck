@@ -446,6 +446,8 @@ class Session:
             cur = self._check(self.state["current"], missing_ok=True)
             if not cur or cur["kind"] != "hibernate":
                 raise SessionError("hibernate isn't the check on screen", 409)
+            if cur.get("preset"):  # detection skipped it (too little swap, say): never start it
+                raise SessionError(f"detection skipped hibernate: {cur['preset']['note']}", 409)
             hib = self.state["hibernate"]
             if hib["phase"] not in ("idle", "failed"):
                 raise SessionError(f"hibernate is already {hib['phase']}", 409)

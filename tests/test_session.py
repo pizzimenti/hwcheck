@@ -274,6 +274,19 @@ class Hibernate(unittest.TestCase):
         self.assertEqual(h.hibernate.calls, 0)
         self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "failed")
 
+    def test_a_skipped_hibernate_never_starts(self):
+        h = Harness(self, [MANUAL[0], dict(HIB, preset={"answer": "skip", "note": "not enough swap to hibernate"})])
+        # however it came to be on screen, a hibernate detection skipped is never started
+        h.session.state["current"], h.session.state["finished"] = "hibernate", None
+        with self.assertRaises(SessionError) as ctx:
+            h.session.start_hibernate()
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertIn("not enough swap", str(ctx.exception))
+        self.assertEqual(h.session.state["hibernate"]["phase"], "idle")
+        h.session.run_hibernate(0)
+        self.assertEqual(h.hibernate.calls, 0)
+        self.assertEqual(h.by_id()["hibernate"]["live"], {"source": "preset", "evidence": "not enough swap to hibernate"})
+
     def test_start_hibernate_only_when_it_is_on_screen(self):
         h = Harness(self, [MANUAL[0], HIB])
         with self.assertRaises(SessionError):

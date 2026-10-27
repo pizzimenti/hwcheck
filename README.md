@@ -39,15 +39,17 @@ a copied address.
 
 how it's handed to the browser matters. a command line is readable by every
 local user (`/proc/<pid>/cmdline`, unless `/proc` is mounted with `hidepid`),
-so `firefox 'http://127.0.0.1:8770/?t=…'` shows the secret to them for as long
+so `chromium 'http://127.0.0.1:8770/?t=…'` shows the secret to them for as long
 as that process runs. instead, open the page hwcheck writes for this, which
 only its owner can read and which forwards to the address:
 
 ```sh
-firefox "file://$HOME/.local/state/hwcheck/open.html"     # or xdg-open, or any browser
+chromium "file://$HOME/.local/state/hwcheck/open.html"
 ```
 
-it is written (mode 0600) when the server starts and removed when it stops.
+it is written (mode 0600) when the server starts and removed when it stops,
+including on sigterm or sighup; one left by a crash or a fresh boot is removed
+at the next start.
 pasting the address into a browser that's already open works as well. the
 limits, plainly: the secret is on hwcheck's own output, so anyone who can see
 that terminal has it; and it does nothing against programs running as the same
@@ -68,7 +70,9 @@ user, which can read the state files and that page anyway.
 it exits by itself after the last answer. exit codes: `0` every check answered,
 `1` couldn't start (port busy, state unreadable), `2` bad plan or usage
 (including an unfinished run without `--resume` or `--new`), `3` stopped by
-`--timeout`, `130` ctrl-c, `143` sigterm. after `3`, `130` or `143`, run it again
+`--timeout`, `129` sighup (its terminal or tmux pane closed), `130` ctrl-c,
+`143` sigterm. on any of these it saves, removes `open.html` and exits
+cleanly; after `3`, `129`, `130` or `143`, run it again
 with `--resume`.
 
 files, under `~/.local/state/hwcheck/` (never /tmp, which a boot clears), both
@@ -890,7 +894,7 @@ screen folded and turned, the machine hibernated and resumed.
 ## requirements
 
 - python 3.11 or later; nothing outside the standard library.
-- a browser on the machine (firefox or chromium).
+- chromium on the machine.
 - for the server-read checks, whichever of these the machine has; without one,
   its check stays manual: `iio-sensor-proxy` (monitor-sensor), `upower`,
   `kscreen-doctor` (plasma), `bluez-utils` (bluetoothctl), systemd

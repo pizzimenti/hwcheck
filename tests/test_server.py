@@ -4,7 +4,9 @@ import contextlib
 import http.client
 import io
 import json
+import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -578,3 +580,45 @@ class Detection(unittest.TestCase):
 def load_plan_text(text):
     from hwchecklib.plan import parse_plan
     return parse_plan(json.loads(text))
+
+
+@unittest.skipUnless(threading.current_thread() is threading.main_thread(), "signals need the main thread")
+class Signals(unittest.TestCase):
+    def test_sighup_and_sigterm_stop_it_cleanly_and_remove_the_handoff(self):
+        for sig, code in ((signal.SIGHUP, 129), (signal.SIGTERM, 143)):
+            with self.subTest(signal=sig.name):
+                d = scratch_dir(self)
+                seen = {}
+
+                def on_ready(server, session, sig=sig, d=d):
+                    seen["handoff"] = (d / "state" / "open.html").exists()
+                    threading.Timer(0.2, os.kill, (os.getpid(), sig)).start()
+
+                # a safety net: if hwcheck failed to take the signal, it must not end the test run
+                safety = lambda *_: seen.setdefault("missed", True)  # noqa: E731
+                before = signal.signal(sig, safety)
+                try:
+                    err = io.StringIO()
+                    got = main(["--plan", str(write_plan(d, MANUAL2)), "--port", "0", "--state-dir",
+                                str(d / "state"), "--timeout", "10"],
+                               readers=fake_readers(), hibernate=FakeHibernate(), out=io.StringIO(), err=err,
+                               on_ready=on_ready, grace=0.05, poll_interval=0.02)
+                    self.assertIs(signal.getsignal(sig), safety)  # its handler was put back
+                finally:
+                    signal.signal(sig, before)
+                self.assertEqual(got, code)
+                self.assertTrue(seen["handoff"])
+                self.assertNotIn("missed", seen)
+                self.assertFalse((d / "state" / "open.html").exists())
+                self.assertIn("--resume", err.getvalue())
+                self.assertEqual([c["answer"] for c in read_results(d / "state")["checks"]], [None, None])
+
+    def test_a_stale_handoff_is_removed_at_start(self):
+        d = scratch_dir(self)
+        (d / "state").mkdir()
+        stale = d / "state" / "open.html"
+        stale.write_text("<meta http-equiv=refresh content='0;url=http://127.0.0.1:8770/?t=old'>", encoding="utf-8")
+        code = main(["--plan", str(write_plan(d, MANUAL2)), "--resume", "--state-dir", str(d / "state")],
+                    readers=fake_readers(), out=io.StringIO(), err=io.StringIO())
+        self.assertEqual(code, 2)  # nothing to resume, but the dead secret is gone
+        self.assertFalse(stale.exists())
