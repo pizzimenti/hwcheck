@@ -32,11 +32,14 @@ let busy = false;   // an answer is on its way
 let events = null;  // the server-sent event stream
 let listIds = "";
 const drafts = {};  // notes typed but not saved yet, by check id
+// this run's secret, from the address hwcheck printed; every api request carries it
+const TOKEN = new URLSearchParams(window.location.search).get("t") || "";
 
 async function api(path, body) {
+  const headers = {"X-Hwcheck-Token": TOKEN};
   const opts = body === undefined
-    ? {cache: "no-store"}
-    : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
+    ? {cache: "no-store", headers}
+    : {method: "POST", headers: {...headers, "Content-Type": "application/json"}, body: JSON.stringify(body)};
   const res = await fetch(path, opts);
   let data = {};
   try { data = await res.json(); } catch (e) { /* no body */ }
@@ -123,6 +126,12 @@ function stopTest() {
   test = null;
 }
 
+// the buttons follow `busy` even when the state that arrives is older than the one shown
+function refreshButtons() {
+  const check = state && !state.finished && state.checks.find((x) => x.id === state.current);
+  if (check) renderButtons(state, check);
+}
+
 function renderButtons(s, check) {
   const works = $("btn-works");
   const bad = $("btn-doesnt-work");
@@ -136,9 +145,12 @@ function renderButtons(s, check) {
     if (ph === "fresh-boot") {
       works.hidden = skip.hidden = true;
       bad.textContent = "save (doesn't work)";
-    } else if (["idle", "failed", "pending"].includes(ph)) {
+    } else if (["idle", "failed"].includes(ph)) {
       works.disabled = true;
       works.title = "run hibernate first";
+    } else if (["pending", "hibernating"].includes(ph)) {
+      works.disabled = true;
+      works.title = "the machine hasn't hibernated and come back yet";
     }
   }
 }
@@ -174,8 +186,8 @@ async function answer(value) {
   } catch (e) {
     busy = false;
     $("answer-msg").textContent = e.message;
-    if (state) renderButtons(state, check);
   }
+  refreshButtons();
 }
 
 async function select(id) {
@@ -188,7 +200,7 @@ async function select(id) {
 }
 
 function connect() {
-  events = new EventSource("/api/events");
+  events = new EventSource(`/api/events?t=${encodeURIComponent(TOKEN)}`);
   events.onmessage = (ev) => {
     $("conn").textContent = "";
     try { render(JSON.parse(ev.data)); } catch (e) { console.error(e); }
@@ -481,7 +493,6 @@ function pen(area) {
       maxTilt = Math.max(maxTilt, Math.abs(e.tiltX || 0), Math.abs(e.tiltY || 0));
       if ((e.buttons & 32) || e.button === 5) eraser = true;
       if ((e.buttons & 2) || e.button === 2) barrel = true;
-      if (e.buttons === 0) hover = true;
     }
     readout.textContent = `${e.pointerType} · pressure ${(e.pressure || 0).toFixed(2)} · tilt x ${e.tiltX || 0}° y ${e.tiltY || 0}° · twist ${e.twist || 0}° · buttons ${e.buttons}`;
   };
@@ -504,6 +515,7 @@ function pen(area) {
   });
   canvas.addEventListener("pointermove", (e) => {
     info(e);
+    if (e.pointerType === "pen" && e.buttons === 0) hover = true;  // moving above the pad, not touching
     if (!last || !(e.buttons & (1 | 32))) return;
     const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
     for (const ce of list.length ? list : [e]) {
@@ -656,10 +668,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (state && state.current) drafts[state.current] = $("note").value;
   });
   window.addEventListener("pagehide", stopTest);
+  if (!TOKEN) {
+    $("conn").textContent = "open the address hwcheck printed, with its ?t= part.";
+    return;
+  }
   try {
     render(await api("/api/state"));
   } catch (e) {
     $("conn").textContent = `can't reach hwcheck: ${e.message}`;
+    return;  // a wrong or stale address: retrying the stream wouldn't help
   }
   connect();
 });

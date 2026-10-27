@@ -181,6 +181,45 @@ class Hibernate(unittest.TestCase):
         self.assertEqual((seen["phase"], seen["boot_id"]), ("pending", BOOT_A))
         self.assertEqual(h.saved_state()["hibernate"]["phase"], "hibernating")
 
+    def test_works_needs_a_sleep_actually_seen(self):
+        h = self.ready()
+        h.session.start_hibernate()
+        with self.assertRaises(SessionError) as ctx:
+            h.session.answer("hibernate", "works")  # pending
+        self.assertIn("hasn't hibernated", str(ctx.exception))
+        h.session.run_hibernate(0)
+        self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "hibernating")
+        with self.assertRaises(SessionError):
+            h.session.answer("hibernate", "works", "nothing happened")  # systemctl returned, no sleep
+        self.assertFalse(h.session.finished.is_set())
+        # just after a real resume, before the poller has looked, works is accepted
+        h.clock.value += 20
+        h.session.answer("hibernate", "works", "back")
+        live = h.by_id()["hibernate"]["live"]
+        self.assertEqual((live["phase"], live["resumed"], live["slept_seconds"]), ("resumed", True, 20))
+
+    def test_doesnt_work_while_hibernating(self):
+        h = self.ready()
+        h.session.start_hibernate()
+        h.session.run_hibernate(0)
+        h.session.answer("hibernate", "doesnt-work", "screen went black and stayed on")
+        live = h.by_id()["hibernate"]["live"]
+        self.assertEqual((live["phase"], live["resumed"]), ("hibernating", None))
+
+    def test_an_answer_during_the_delay_cancels_the_hibernate(self):
+        h = self.ready()
+        h.session.start_hibernate()
+        h.session.answer("hibernate", "skip", "not today")
+        self.assertTrue(h.session.finished.is_set())
+        h.session.run_hibernate(0)
+        self.assertEqual(h.hibernate.calls, 0)
+
+    def test_the_sleep_mark_is_saved_at_the_press(self):
+        h = self.ready()
+        h.clock.value = 7.5
+        h.session.start_hibernate()
+        self.assertEqual(h.saved_state()["hibernate"]["sleep_mark"], 7.5)
+
     def test_resume_in_the_same_process(self):
         h = self.ready()
         h.session.start_hibernate()
@@ -252,6 +291,7 @@ class Resume(unittest.TestCase):
 
     def test_same_boot_means_it_resumed(self):
         h = self.pending()
+        h.clock.value += 64  # it slept
         s = h.resume()
         snap = s.snapshot()
         self.assertEqual((snap["current"], snap["hibernate"]["phase"]), ("hibernate", "resumed"))
@@ -261,8 +301,30 @@ class Resume(unittest.TestCase):
         self.assertEqual((hib["answer"], hib["note"]), ("works", "all came back"))
         self.assertEqual((hib["live"]["boot_id_before"], hib["live"]["boot_id_after"]), (BOOT_A, BOOT_A))
         self.assertTrue(hib["live"]["resumed"])
+        self.assertEqual(hib["live"]["slept_seconds"], 64)
         self.assertEqual(h.by_id()["a"]["note"], "ok")  # earlier answers survive
         self.assertTrue(s.finished.is_set())
+
+    def test_same_boot_and_no_sleep_means_it_never_hibernated(self):
+        h = self.pending()
+        s = h.resume()
+        snap = s.snapshot()
+        self.assertEqual((snap["current"], snap["hibernate"]["phase"]), ("hibernate", "failed"))
+        self.assertIn("didn't sleep", snap["hibernate"]["error"])
+        with self.assertRaises(SessionError):
+            s.answer("hibernate", "works")
+        s.start_hibernate()  # it can be tried again
+        s.run_hibernate(0)
+        h.clock.value += 30
+        s.answer("hibernate", "works", "second try came back")
+        self.assertTrue(s.finished.is_set())
+
+    def test_same_boot_from_an_older_state_without_a_mark_is_a_resume(self):
+        h = self.pending()
+        state = h.store.load_state()
+        del state["hibernate"]["sleep_mark"]
+        h.store.save(state, h.session.results())
+        self.assertEqual(h.resume().snapshot()["hibernate"]["phase"], "resumed")
 
     def test_new_boot_means_it_booted_fresh(self):
         h = self.pending()

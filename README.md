@@ -17,8 +17,11 @@ cd hwcheck
 python3 hwcheck.py --plan examples/plan-2in1.json
 ```
 
-the first line it prints is the page's url (`http://127.0.0.1:8770/`); open it in
-the machine's own browser, in the person's desktop session. the page fetches
+the first line it prints is the page's address (`http://127.0.0.1:8770/?t=…`);
+open it in the machine's own browser, in the person's desktop session. the `t`
+is a secret made for this run: the page sends it with every request, and
+hwcheck refuses any request without it, so another user or program on the
+machine can't read the notes, answer, or set off a hibernate. the page fetches
 nothing from anywhere else, and the camera and microphone work because
 `127.0.0.1` counts as a secure origin.
 
@@ -78,9 +81,12 @@ check has an answer.
 
 ## hibernate and --resume
 
-hibernate runs last. pressing "hibernate now" saves `hibernate pending` and the
-boot id (`/proc/sys/kernel/random/boot_id`) to disk, then runs
-`systemctl hibernate`.
+hibernate runs last. pressing "hibernate now" saves `hibernate pending`, the
+boot id (`/proc/sys/kernel/random/boot_id`) and how long the machine has slept
+since boot to disk, then runs `systemctl hibernate` a second later (not at all
+if the person answers in that second). `systemctl` returns as soon as the job
+is queued, so until a sleep has actually been seen the answer can only be
+doesn't work or skip.
 
 - **it resumes.** the server and the page come back with everything else. the
   server sees the machine slept (boot time ran on while monotonic time stood
@@ -90,7 +96,9 @@ boot id (`/proc/sys/kernel/random/boot_id`) to disk, then runs
   hibernate image wasn't restored: the check is recorded as doesn't work at
   once, and the page asks the person for a note on what they saw.
 - **the server was stopped but the machine didn't reboot.** `--resume` sees the
-  same boot id and asks whether everything came back.
+  same boot id and compares the time asleep with what was saved at the press:
+  if the machine slept, it asks whether everything came back; if it didn't,
+  hibernate never happened, and the page says so and offers to try again.
 - **`systemctl hibernate` refuses** (no swap, an inhibitor): the page shows its
   message and offers "try hibernate again"; the answer can then only be doesn't
   work or skip.
@@ -767,8 +775,9 @@ screen folded and turned, the machine hibernated and resumed.
 
 ## what it doesn't do
 
-- it listens on 127.0.0.1 only, refuses requests carrying another host name or
-  another site's origin, and sends nothing off the machine.
+- it listens on 127.0.0.1 only, refuses requests without this run's secret or
+  carrying another host name or another site's origin, and sends nothing off
+  the machine.
 - it starts nothing else: the only other process it runs for longer than a
   read is `monitor-sensor`, while the rotation check is on screen.
 - it needs no root. the tablet-mode switch's state is readable only with access

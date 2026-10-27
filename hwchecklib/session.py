@@ -24,12 +24,13 @@ MAX_OBSERVED = 8192
 MAX_SEEN = 30
 SLEEP_GAP = 2.0  # seconds the machine must have slept before we call it a resume
 
-# which answers each hibernate phase accepts
+# which answers each hibernate phase accepts. "works" needs a sleep actually seen:
+# systemctl hibernate returns as soon as logind queues the job, long before any sleep.
 HIBERNATE_ANSWERS = {
     "idle": {"doesnt-work", "skip"},
     "pending": {"doesnt-work", "skip"},
+    "hibernating": {"doesnt-work", "skip"},
     "failed": {"doesnt-work", "skip"},
-    "hibernating": set(ANSWERS),
     "resumed": set(ANSWERS),
     "unknown": set(ANSWERS),
     "fresh-boot": {"doesnt-work"},
@@ -68,7 +69,7 @@ class SessionError(Exception):
 
 def _new_hibernate() -> dict:
     return {"phase": "idle", "boot_id": None, "at": None, "error": None, "boot_id_after": None,
-            "slept_seconds": None, "resumed_at": None, "kernel_log": None}
+            "slept_seconds": None, "resumed_at": None, "kernel_log": None, "sleep_mark": None}
 
 
 class Session:
@@ -88,7 +89,6 @@ class Session:
         self.finished = threading.Event()
         self.wake = threading.Event()
         self.live: dict | None = None
-        self.hib_mark: float | None = None
         self._poll_lock = threading.Lock()
         self._polled: str | None = None
         if state.get("finished"):
@@ -148,8 +148,17 @@ class Session:
         hib["boot_id_after"] = boot_now
         before = hib.get("boot_id")
         if before and boot_now and before == boot_now:
-            hib["phase"] = "resumed"
-            hib["resumed_at"] = self.now()
+            mark = hib.get("sleep_mark")
+            slept = None if mark is None else self.sleep_clock() - mark
+            if slept is not None and slept < SLEEP_GAP:
+                # same boot and no time asleep since the press: it never hibernated
+                hib.update(phase="failed", error="the machine didn't sleep before hwcheck stopped; "
+                                                 "try hibernate again")
+            else:
+                hib["phase"] = "resumed"
+                hib["resumed_at"] = self.now()
+                if slept is not None:
+                    hib["slept_seconds"] = round(slept)
             hib["kernel_log"] = {"this_boot": self.readers.kernel_log("0")}
         elif before and boot_now:
             # a new boot id: the machine started fresh instead of resuming.
@@ -333,6 +342,7 @@ class Session:
             raise SessionError(f"the note is longer than {MAX_NOTE} characters")
         if observed is not None and not isinstance(observed, dict):
             raise SessionError("observed must be an object")
+        self._check_resumed()  # an answer just after a real resume must see it
         with self.lock:
             check = self._guard_current(check_id)
             kind = check["kind"]
@@ -385,8 +395,8 @@ class Session:
             return "the machine booted fresh, so hibernate is recorded as doesn't work; add a note and save"
         if answer == "works" and phase in ("idle", "failed"):
             return "run hibernate first: press hibernate now"
-        if answer == "works" and phase == "pending":
-            return "hibernate hasn't happened yet"
+        if answer == "works" and phase in ("pending", "hibernating"):
+            return "the machine hasn't hibernated and come back yet"
         return f"{answer} can't be recorded while hibernate is {phase}"
 
     def select(self, check_id) -> dict:
@@ -417,8 +427,8 @@ class Session:
             if hib["phase"] not in ("idle", "failed"):
                 raise SessionError(f"hibernate is already {hib['phase']}", 409)
             hib.update(_new_hibernate())
-            hib.update(phase="pending", boot_id=self.readers.boot_id(), at=self.now())
-            self.hib_mark = self.sleep_clock()
+            hib.update(phase="pending", boot_id=self.readers.boot_id(), at=self.now(),
+                       sleep_mark=self.sleep_clock())
             self._changed(save=True)  # on disk before the machine goes down
             return self.snapshot()
 
@@ -431,6 +441,12 @@ class Session:
                     hib.update(phase="failed", error="hwcheck stopped before hibernating")
                     self._changed(save=True)
             return
+        with self.lock:
+            # the person may have answered (and finished the run) during the delay
+            hid = self._hibernate_id()
+            if (self.state["finished"] or self.state["hibernate"]["phase"] != "pending"
+                    or (hid and self._answered(hid))):
+                return
         try:
             ok, message = self.hibernate_action()
         except Exception as exc:  # the action must not kill the thread silently
@@ -479,7 +495,7 @@ class Session:
 
     def _check_resumed(self) -> None:
         with self.lock:
-            phase, mark = self.state["hibernate"]["phase"], self.hib_mark
+            phase, mark = self.state["hibernate"]["phase"], self.state["hibernate"].get("sleep_mark")
         if phase not in ("pending", "hibernating") or mark is None:
             return
         gap = self.sleep_clock() - mark

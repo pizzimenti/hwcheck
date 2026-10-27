@@ -29,11 +29,16 @@ Each version's heading says whether it was a major, minor or patch change.
   (`kscreen-doctor -o`) and Bluetooth (`bluetoothctl show`, `bluetoothctl
   devices Connected`). A missing or failing tool shows "can't read" and the
   check stays manual.
-- Hibernate, always the last check: pressing it saves "hibernate pending" and
-  the boot id, then runs `systemctl hibernate`. A server that survives the
-  hibernate notices the sleep and asks whether everything came back;
-  `--resume` after a restart compares boot ids, so a fresh boot is recorded as
-  doesn't work, with the kernel log's hibernation lines from both boots.
+- Hibernate, always the last check: pressing it saves "hibernate pending", the
+  boot id and the time slept so far, then runs `systemctl hibernate` a second
+  later unless the person has answered meanwhile. "Works" is accepted only
+  once a sleep has been seen. A server that survives the hibernate notices the
+  sleep and asks whether everything came back; `--resume` after a restart
+  compares boot ids (a fresh boot is recorded as doesn't work, with the kernel
+  log's hibernation lines from both boots) and, in the same boot, the time
+  slept (none means it never hibernated, and it can be tried again).
+- A secret made for each run, in the printed address (`?t=`), required on
+  every api request, beside the host and origin checks.
 - State and results are written atomically to `~/.local/state/hwcheck/` after
   every answer; an unfinished run must be resumed or explicitly replaced
   (`--new`), and earlier runs are kept, renamed.

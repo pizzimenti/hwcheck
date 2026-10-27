@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hmac
 import json
+import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from . import STATIC_DIR, __version__
 from .session import SessionError
@@ -23,16 +25,22 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' 
        "frame-ancestors 'none'")
 MAX_BODY = 65536
 KEEPALIVE = 10.0
+TOKEN_HEADER = "X-Hwcheck-Token"
+NO_TOKEN = "open the address hwcheck printed, with its ?t= part"
 
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, session, port: int = 0, static_dir=STATIC_DIR, hibernate_delay: float = 1.0):
+    def __init__(self, session, port: int = 0, static_dir=STATIC_DIR, hibernate_delay: float = 1.0,
+                 token: str | None = None):
         self.session = session
         self.static_dir = static_dir
         self.hibernate_delay = hibernate_delay
+        # a secret for this run only: every api request must carry it, so another local
+        # user or process can neither read the notes nor answer or hibernate
+        self.token = token or secrets.token_urlsafe(18)
         super().__init__(("127.0.0.1", port), Handler)
 
     @property
@@ -41,7 +49,7 @@ class Server(ThreadingHTTPServer):
 
     @property
     def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}/"
+        return f"http://127.0.0.1:{self.port}/?t={self.token}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -60,6 +68,12 @@ class Handler(BaseHTTPRequestHandler):
     def _host_ok(self) -> bool:
         # refuse other host names so a web page can't reach us by dns rebinding
         return self.headers.get("Host", "") in self._hosts()
+
+    def _token_ok(self, allow_query: bool = False) -> bool:
+        got = self.headers.get(TOKEN_HEADER, "")
+        if not got and allow_query:  # EventSource can't send headers
+            got = parse_qs(urlsplit(self.path).query).get("t", [""])[0]
+        return hmac.compare_digest(got.encode("utf-8"), self.server.token.encode("utf-8"))
 
     def _send(self, status: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
         self.send_response(status)
@@ -86,8 +100,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(403, "wrong host")
         path = urlsplit(self.path).path
         if path == "/api/state":
+            if not self._token_ok():
+                return self._error(403, NO_TOKEN)
             return self._json(200, self.server.session.snapshot())
         if path == "/api/events":
+            if not self._token_ok(allow_query=True):
+                return self._error(403, NO_TOKEN)
             return self._events()
         if path in STATIC:
             name, ctype = STATIC[path]
@@ -133,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin is not None and origin not in tuple(f"http://{h}" for h in self._hosts()):
             return self._error(403, "requests from other sites are refused")
+        if not self._token_ok():
+            return self._error(403, NO_TOKEN)
         ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
         if ctype != "application/json":
             return self._error(415, "send json")

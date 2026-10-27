@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import unittest
 
 from hwchecklib.cli import main
@@ -48,13 +49,15 @@ ANSWERS = {
 class Run:
     """hwcheck's main() in a thread, on 127.0.0.1 with a free port and fake readers."""
 
-    def __init__(self, test, plan_path, state_dir, readers=None, hibernate=None, args=(), clock=None):
+    def __init__(self, test, plan_path, state_dir, readers=None, hibernate=None, args=(), clock=None,
+                 hibernate_delay=0):
         self.readers = readers or fake_readers()
         self.hibernate = hibernate or FakeHibernate()
         self.clock = clock or FakeClock(0.0)
         self.out, self.err = io.StringIO(), io.StringIO()
         self.server = self.session = self.code = None
         self.ready = threading.Event()
+        self.hibernate_delay = hibernate_delay
         argv = ["--plan", str(plan_path), "--port", "0", "--state-dir", str(state_dir), *args]
         self.thread = threading.Thread(target=self._main, args=(argv,), daemon=True)
         self.thread.start()
@@ -67,16 +70,17 @@ class Run:
             self.ready.set()
 
         self.code = main(argv, readers=self.readers, hibernate=self.hibernate, out=self.out, err=self.err,
-                         on_ready=on_ready, grace=0.05, poll_interval=0.02, hibernate_delay=0,
+                         on_ready=on_ready, grace=0.05, poll_interval=0.02,
+                         hibernate_delay=self.hibernate_delay,
                          session_options={"sleep_clock": self.clock})
 
     @property
     def port(self):
         return self.server.server_address[1]
 
-    def request(self, method, path, body=None, headers=None):
+    def request(self, method, path, body=None, headers=None, token=True):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        hdrs = {}
+        hdrs = {"X-Hwcheck-Token": self.server.token} if token else {}
         if body is not None:
             hdrs["Content-Type"] = "application/json"
             if not isinstance(body, (bytes, str)):
@@ -125,7 +129,8 @@ class WholePlan(unittest.TestCase):
         run = Run(self, EXAMPLE_PLAN, state_dir)
         self.assertEqual(run.server.server_address[0], "127.0.0.1")
         url = run.out.getvalue().splitlines()[0]
-        self.assertEqual(url, f"http://127.0.0.1:{run.port}/")
+        self.assertEqual(url, f"http://127.0.0.1:{run.port}/?t={run.server.token}")
+        self.assertGreaterEqual(len(run.server.token), 20)
 
         # the page and its files: served locally, nothing fetched from elsewhere
         resp, body = run.request("GET", "/")
@@ -133,6 +138,7 @@ class WholePlan(unittest.TestCase):
         self.assertTrue(resp.getheader("Content-Type").startswith("text/html"))
         self.assertIn("default-src 'none'", resp.getheader("Content-Security-Policy"))
         self.assertIn(b'<script src="/app.js"', body)
+        self.assertIn(b'<link rel="icon" href="data:,">', body)  # no favicon request to 404
         for path in ("/", "/app.js", "/style.css"):
             resp, body = run.request("GET", path)
             self.assertEqual(resp.status, 200, path)
@@ -159,6 +165,9 @@ class WholePlan(unittest.TestCase):
                 self.assertEqual(saved["hibernate"]["phase"], "pending")  # on disk before it sleeps
                 wait_for(lambda: run.get()["hibernate"]["phase"] == "hibernating")
                 self.assertEqual(run.hibernate.calls, 1)
+                # systemctl has returned but nothing has slept: works isn't accepted yet
+                status, body = run.post("/api/answer", {"id": cur, "answer": "works", "note": "too soon"})
+                self.assertEqual(status, 409, body)
                 run.clock.value += 31  # the machine slept
                 wait_for(lambda: run.get()["hibernate"]["phase"] == "resumed")
             answer, note, observed = ANSWERS[cur]
@@ -208,7 +217,7 @@ class Endpoints(unittest.TestCase):
         d = scratch_dir(self)
         run = Run(self, write_plan(d, MANUAL2), d / "state")
         conn = http.client.HTTPConnection("127.0.0.1", run.port, timeout=10)
-        conn.request("GET", "/api/events")
+        conn.request("GET", f"/api/events?t={run.server.token}")
         resp = conn.getresponse()
         self.assertEqual(resp.getheader("Content-Type"), "text/event-stream")
 
@@ -263,6 +272,58 @@ class Endpoints(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         run.session.stop()
         self.assertEqual(run.wait(), 143)
+
+
+class Token(unittest.TestCase):
+    def test_every_api_request_needs_this_runs_token(self):
+        d = scratch_dir(self)
+        run = Run(self, write_plan(d, WITH_HIB), d / "state")
+        wrong = {"X-Hwcheck-Token": "not-the-token"}
+        for path in ("/api/state", "/api/events"):
+            for kw in ({"token": False}, {"token": False, "headers": wrong}):
+                resp, raw = run.request("GET", path, **kw)
+                self.assertEqual(resp.status, 403, (path, kw))
+                self.assertIn("?t=", json.loads(raw)["error"])
+        for path, body in (("/api/answer", {"id": "a", "answer": "works", "note": "x"}),
+                           ("/api/select", {"id": "a"}), ("/api/hibernate", {})):
+            resp, _ = run.request("POST", path, body, token=False)
+            self.assertEqual(resp.status, 403, path)
+            resp, _ = run.request("POST", path, body, token=False, headers=wrong)
+            self.assertEqual(resp.status, 403, path)
+        resp, _ = run.request("GET", f"/api/state?t={run.server.token}", token=False)
+        self.assertEqual(resp.status, 403)  # in the query only the event stream may carry it
+        self.assertEqual(run.get()["counts"]["left"], 2)  # nothing was recorded
+        # the page itself carries no secrets and loads without it; it reads the token from its url
+        resp, _ = run.request("GET", "/", token=False)
+        self.assertEqual(resp.status, 200)
+        resp, _ = run.request("GET", "/app.js", token=False)
+        self.assertEqual(resp.status, 200)
+        # with the token in the event stream's query
+        conn = http.client.HTTPConnection("127.0.0.1", run.port, timeout=10)
+        conn.request("GET", f"/api/events?t={run.server.token}")
+        self.assertEqual(conn.getresponse().status, 200)
+        conn.close()
+
+    def test_each_run_has_its_own_token(self):
+        d = scratch_dir(self)
+        plan = write_plan(d, MANUAL2)
+        first = Run(self, plan, d / "a")
+        second = Run(self, plan, d / "b")
+        self.assertNotEqual(first.server.token, second.server.token)
+
+
+class HibernateOverHttp(unittest.TestCase):
+    def test_answering_in_the_delay_means_it_never_hibernates(self):
+        d = scratch_dir(self)
+        run = Run(self, write_plan(d, WITH_HIB), d / "state", hibernate_delay=0.5)
+        run.post("/api/answer", {"id": "a", "answer": "works"})
+        status, s = run.post("/api/hibernate", {})
+        self.assertEqual((status, s["hibernate"]["phase"]), (200, "pending"))
+        status, _ = run.post("/api/answer", {"id": "hibernate", "answer": "skip", "note": "changed my mind"})
+        self.assertEqual(status, 200)
+        self.assertEqual(run.wait(), 0)
+        time.sleep(0.7)  # past the delay: the action must not have run
+        self.assertEqual(run.hibernate.calls, 0)
 
 
 class CommandLine(unittest.TestCase):
@@ -350,12 +411,13 @@ class ResumeFromTheCommandLine(unittest.TestCase):
         wait_for(lambda: run.session.state["hibernate"]["phase"] == "hibernating")
         saved = json.loads((d / "state" / "state.json").read_text())
         self.assertIn(saved["hibernate"]["phase"], ("pending", "hibernating"))
-        return plan, readers
+        return plan, readers, run.clock
 
     def test_same_boot_resume(self):
         d = scratch_dir(self)
-        plan, readers = self.go_down_while_hibernating(d)
-        run = Run(self, plan, d / "state", readers=readers, args=["--resume"])
+        plan, readers, clock = self.go_down_while_hibernating(d)
+        clock.value += 55  # the machine hibernated and came back in the same boot
+        run = Run(self, plan, d / "state", readers=readers, args=["--resume"], clock=clock)
         state = run.get()
         self.assertEqual((state["current"], state["hibernate"]["phase"]), ("hibernate", "resumed"))
         resp, _ = run.request("GET", "/")
@@ -368,11 +430,24 @@ class ResumeFromTheCommandLine(unittest.TestCase):
         hib = got["hibernate"]
         self.assertEqual((hib["answer"], hib["note"]), ("works", "all came back"))
         self.assertTrue(hib["live"]["resumed"])
+        self.assertEqual(hib["live"]["slept_seconds"], 55)
         self.assertEqual(hib["live"]["boot_id_before"], hib["live"]["boot_id_after"])
+
+    def test_same_boot_without_a_sleep_is_not_a_resume(self):
+        d = scratch_dir(self)
+        plan, readers, clock = self.go_down_while_hibernating(d)
+        run = Run(self, plan, d / "state", readers=readers, args=["--resume"], clock=clock)
+        state = run.get()
+        self.assertEqual(state["hibernate"]["phase"], "failed")
+        self.assertIn("didn't sleep", state["hibernate"]["error"])
+        status, _ = run.post("/api/answer", {"id": "hibernate", "answer": "works"})
+        self.assertEqual(status, 409)
+        status, s = run.post("/api/hibernate", {})  # try again
+        self.assertEqual((status, s["hibernate"]["phase"]), (200, "pending"))
 
     def test_fresh_boot_resume_after_a_failed_hibernate(self):
         d = scratch_dir(self)
-        plan, readers = self.go_down_while_hibernating(d)
+        plan, readers, _ = self.go_down_while_hibernating(d)
         readers.files["/proc/sys/kernel/random/boot_id"] = BOOT_B + "\n"
         run = Run(self, plan, d / "state", readers=readers, args=["--resume"])
         state = run.get()
