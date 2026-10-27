@@ -7,6 +7,8 @@ Each version's heading says whether it was a major, minor or patch change.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-27 (patch)
+
 ### Fixed
 
 - Saving is all or nothing: `state.json` and `results.json` are each written
@@ -91,5 +93,6 @@ Each version's heading says whether it was a major, minor or patch change.
 - Tests on recorded tool outputs, including a browser-free run of a whole plan
   through the http endpoints and same-boot and fresh-boot `--resume` runs.
 
-[Unreleased]: https://github.com/pizzimenti/hwcheck/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pizzimenti/hwcheck/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/pizzimenti/hwcheck/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/pizzimenti/hwcheck/releases/tag/v0.1.0
