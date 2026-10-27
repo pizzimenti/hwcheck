@@ -266,11 +266,61 @@ class Hibernate(unittest.TestCase):
         with self.assertRaises(SessionError):
             h.session.answer("hibernate", "works")
 
-    def test_the_sleep_mark_is_saved_at_the_press(self):
+    def test_the_sleep_mark_is_taken_with_the_action_mark(self):
         h = self.ready()
         h.clock.value = 7.5
         h.session.start_hibernate()
-        self.assertEqual(h.saved_state()["hibernate"]["sleep_mark"], 7.5)
+        self.assertIsNone(h.saved_state()["hibernate"]["sleep_mark"])  # not at the press
+        h.clock.value = 9.0
+        h.session.run_hibernate(0)
+        self.assertEqual(h.saved_state()["hibernate"]["sleep_mark"], 9.0)
+
+    def test_a_suspend_in_the_delay_doesnt_count_toward_the_sleep(self):
+        h = self.ready()
+        h.session.start_hibernate()
+        h.clock.value += 30  # suspended in the second before systemctl
+        h.session.run_hibernate(0)  # systemctl accepted the job
+        h.session.poll_once()
+        self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "hibernating")  # not "resumed"
+        with self.assertRaises(SessionError):
+            h.session.answer("hibernate", "works")
+        h.clock.value += 40  # now it really hibernates and comes back
+        h.session.poll_once()
+        self.assertEqual(h.session.snapshot()["hibernate"]["slept_seconds"], 40)
+
+    def test_a_refused_systemctl_doesnt_leave_resumed_standing(self):
+        h = self.ready(hibernate=FakeHibernate(False, "Call to Hibernate failed: Sleep verb not supported"))
+
+        def a_sleep_seen_while_systemctl_ran():
+            h.clock.value += 30
+            h.session.poll_once()
+            self.assertEqual(h.session.snapshot()["hibernate"]["phase"], "resumed")
+
+        h.hibernate.then = a_sleep_seen_while_systemctl_ran
+        h.session.start_hibernate()
+        h.session.run_hibernate(0)
+        snap = h.session.snapshot()["hibernate"]
+        self.assertEqual(snap["phase"], "failed")
+        self.assertIn("not supported", snap["error"])
+        self.assertEqual(h.saved_state()["hibernate"]["phase"], "failed")
+        with self.assertRaises(SessionError):
+            h.session.answer("hibernate", "works")
+
+    def test_a_mark_that_cant_be_saved_fails_hibernate_and_it_can_be_retried(self):
+        h = self.ready()
+        h.session.start_hibernate()
+        real_save = h.store.save
+        h.store.save = lambda state, results: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+        h.session.run_hibernate(0)
+        self.assertEqual(h.hibernate.calls, 0)  # not started without its mark
+        snap = h.session.snapshot()["hibernate"]
+        self.assertEqual(snap["phase"], "failed")
+        self.assertIn("couldn't be saved", snap["error"])
+        h.store.save = real_save  # space freed
+        h.session.start_hibernate()  # retried, not refused as "already pending"
+        h.session.run_hibernate(0)
+        self.assertEqual(h.hibernate.calls, 1)
+        self.assertEqual(h.saved_state()["hibernate"]["phase"], "hibernating")
 
     def test_resume_in_the_same_process(self):
         h = self.ready()
@@ -464,6 +514,28 @@ class SavedOrUndone(unittest.TestCase):
         h.store.save = real_save  # space freed
         h.session.answer("a", "works", "saved")
         self.assertEqual((h.by_id()["a"]["answer"], h.by_id()["a"]["note"]), ("works", "saved"))
+
+    def test_a_full_disk_between_the_two_files_changes_neither(self):
+        from hwchecklib import store as store_module
+        h = Harness(self, MANUAL)
+        h.session.answer("a", "works", "kept")
+        state_before, results_before = h.store.state_path.read_bytes(), h.store.results_path.read_bytes()
+        real_write = store_module._write_temp
+
+        def results_dont_fit(path, data):
+            if str(path).endswith("results.json"):
+                raise OSError(28, "No space left on device")
+            return real_write(path, data)
+
+        store_module._write_temp = results_dont_fit
+        try:
+            with self.assertRaises(SessionError):
+                h.session.answer("b", "works", "lost")
+        finally:
+            store_module._write_temp = real_write
+        self.assertEqual(h.store.state_path.read_bytes(), state_before)
+        self.assertEqual(h.store.results_path.read_bytes(), results_before)
+        self.assertEqual(h.session.results(), json.loads(results_before))
 
     def test_a_refused_select_or_hibernate_changes_nothing(self):
         h = Harness(self, [MANUAL[0], HIB])

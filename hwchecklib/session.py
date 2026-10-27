@@ -492,8 +492,7 @@ class Session:
                 raise SessionError(f"hibernate is already {hib['phase']}", 409)
             with self._changing():  # on disk before the machine goes down
                 hib.update(_new_hibernate())
-                hib.update(phase="pending", boot_id=self.readers.boot_id(), at=self.now(),
-                           sleep_mark=self.sleep_clock())
+                hib.update(phase="pending", boot_id=self.readers.boot_id(), at=self.now())
             return self.snapshot()
 
     def launch_hibernate(self, delay: float = 1.0) -> None:
@@ -522,21 +521,39 @@ class Session:
                 return
             try:
                 # on disk (fsynced) before systemctl runs: --resume trusts a pending hibernate
-                # only with this, so one stopped, crashed or cut off in the delay reads as never run
+                # only with this, so one stopped, crashed or cut off in the delay reads as never run.
+                # the sleep clock is read here too, not at the press: a suspend in the delay
+                # mustn't count toward the time asleep.
                 with self._changing():
-                    self.state["hibernate"]["action_started"] = self.now()
-            except SessionError:
-                return  # couldn't record it: then don't hibernate
+                    self.state["hibernate"].update(action_started=self.now(), sleep_mark=self.sleep_clock())
+            except SessionError as exc:
+                # couldn't record it (a full disk, say): don't hibernate, and say so; the person
+                # can try again. on disk it is still pending with no mark, which --resume also
+                # reads as never run, so if this can't be saved either, memory may say it alone.
+                failed = {"phase": "failed",
+                          "error": f"hibernate didn't start: its start couldn't be saved ({exc}); try again"}
+                try:
+                    with self._changing():
+                        self.state["hibernate"].update(failed)
+                except SessionError:
+                    self.state["hibernate"].update(failed)
+                    self._changed(save=False)
+                return
         try:
             ok, message = self.hibernate_action()
         except Exception as exc:  # the action must not kill the thread silently
             ok, message = False, f"hibernate failed: {exc}"
         with self.lock:
             hib = self.state["hibernate"]
-            # while systemctl ran, the person may have answered (finishing the run), hwcheck may
-            # be stopping, or the resume may already have been seen: then write nothing
-            if not self._open() or (hid and self._answered(hid)) or hib["phase"] != "pending":
+            # while systemctl ran, the person may have answered (finishing the run) or hwcheck
+            # may be stopping: then write nothing
+            if not self._open() or (hid and self._answered(hid)):
                 return
+            if ok and hib["phase"] != "pending":
+                return  # the resume was seen while systemctl was returning: it stands
+            if not ok and hib["phase"] not in ("pending", "resumed"):
+                return
+            # a refused systemctl means no hibernate, whatever sleep was seen while it ran
             try:
                 with self._changing():
                     if ok:

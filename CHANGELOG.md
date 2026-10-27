@@ -7,6 +7,26 @@ Each version's heading says whether it was a major, minor or patch change.
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving is all or nothing: `state.json` and `results.json` are each written
+  in full, fsynced, to a temporary file before either is renamed into place,
+  and if the second rename fails the old `state.json` is put back. Previously
+  a full disk while writing `results.json` left a new `state.json` beside the
+  old results, while memory had rolled back.
+- If the mark saved just before `systemctl hibernate` can't be written (a full
+  disk), hibernate is now recorded as failed with the reason, and pressing it
+  again works. Previously the thread gave up silently, the page still said
+  pending, and a second press was refused as already pending.
+- The time asleep is now measured from that mark, not from the press, so a
+  suspend in the second before `systemctl` runs no longer counts as time
+  hibernated; and a `systemctl` that refuses after a sleep was seen leaves
+  hibernate failed, not resumed, so "works" can't be recorded for it.
+- SIGTERM and SIGHUP handlers now only record the signal; the serve loop
+  stops the run. Previously the handler called stop(), which takes locks
+  (the stopping event's own among them), so a signal arriving while the main
+  thread held one could hang hwcheck.
+
 ## [0.1.0] - 2026-10-27 (minor)
 
 ### Added

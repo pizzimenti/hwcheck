@@ -6,6 +6,7 @@ import fcntl
 import html
 import json
 import os
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -24,13 +25,12 @@ def default_dir() -> Path:
     return root / "hwcheck"
 
 
-def atomic_write_json(path: Path, obj) -> None:
-    """write obj as json to path so a reader sees the old file or the new one, never half."""
-    atomic_write_bytes(path, (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+def _json_bytes(obj) -> bytes:
+    return (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
-    """the same for any bytes; the file is the owner's alone (0600)."""
+def _write_temp(path: Path, data: bytes) -> str:
+    """data in full, fsynced, in a temporary file beside path (0600); its name is returned."""
     path = Path(path)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
@@ -38,12 +38,32 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
+    except BaseException:
+        _unlink(tmp)
+        raise
+    return tmp
+
+
+def _unlink(path) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def atomic_write_json(path: Path, obj) -> None:
+    """write obj as json to path so a reader sees the old file or the new one, never half."""
+    atomic_write_bytes(path, _json_bytes(obj))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """the same for any bytes; the file is the owner's alone (0600)."""
+    path = Path(path)
+    tmp = _write_temp(path, data)
+    try:
         os.replace(tmp, path)
     except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
+        _unlink(tmp)
         raise
     _fsync_dir(path.parent)
 
@@ -139,9 +159,41 @@ class Store:
         return state
 
     def save(self, state: dict, results: dict) -> None:
+        """both files or neither. each is written in full (fsynced) to a temporary file before
+        either is renamed into place, so a full disk changes nothing; if the second rename
+        fails, the old state.json is put back from a hard link taken before the first."""
         self.ensure()
-        atomic_write_json(self.state_path, state)
-        atomic_write_json(self.results_path, results)
+        temps: list[str | None] = []
+        backup = None
+        try:
+            temps.append(_write_temp(self.state_path, _json_bytes(state)))
+            temps.append(_write_temp(self.results_path, _json_bytes(results)))
+            had_state = self.state_path.exists()
+            if had_state:
+                backup = self.dir / f".{self.state_path.name}.{secrets.token_hex(6)}.old"
+                try:
+                    os.link(self.state_path, backup)
+                except OSError:  # no hard links here: then the state can't be put back
+                    backup = None
+            os.replace(temps[0], self.state_path)
+            temps[0] = None
+            try:
+                os.replace(temps[1], self.results_path)
+                temps[1] = None
+            except BaseException:
+                if backup is not None:  # the state is new and the results aren't: undo the state
+                    os.replace(backup, self.state_path)
+                    backup = None
+                elif not had_state:
+                    _unlink(self.state_path)
+                raise
+        finally:
+            for tmp in temps:
+                if tmp:
+                    _unlink(tmp)
+            if backup is not None:
+                _unlink(backup)
+        _fsync_dir(self.dir)
 
     def archive(self, stamp: str) -> list[Path]:
         """move an earlier run's files aside (state-<stamp>.json, results-<stamp>.json)."""

@@ -187,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(session, server: Server, timeout: float | None = None, grace: float = 1.5,
-          poll_interval: float = 1.0, clock=time.monotonic) -> str:
+          poll_interval: float = 1.0, clock=time.monotonic, stop_requested=None) -> str:
     """run until every check is answered, --timeout passes, or something stops the session.
 
     returns "finished", "timeout", "stopped" or "interrupted". monotonic time doesn't
@@ -208,8 +208,8 @@ def serve(session, server: Server, timeout: float | None = None, grace: float = 
                 session.stopping.wait(grace)  # let the page get the final state
                 outcome = "finished"
                 break
-            if session.stopping.is_set():
-                outcome = "stopped"
+            if session.stopping.is_set() or (stop_requested is not None and stop_requested()):
+                outcome = "stopped"  # a signal, recorded by its handler: stopped here, outside it
                 break
             if timeout and clock() - started >= timeout:
                 outcome = "timeout"

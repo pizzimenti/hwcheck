@@ -57,6 +57,22 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+class SignalStop:
+    """the sigterm and sighup handler: it only records which signal came, and the serve loop,
+    which looks every 0.2 s, does the stopping. stop() takes locks (the session's, and the
+    stopping event's own); a handler taking one that the interrupted main thread holds would
+    hang it."""
+
+    def __init__(self):
+        self.signals: list[int] = []
+
+    def __call__(self, signum, _frame) -> None:
+        self.signals.append(signum)
+
+    def requested(self) -> bool:
+        return bool(self.signals)
+
+
 def terminal_safe(text) -> str:
     """device names come from the machine: drop escape codes and control characters before printing."""
     return re.sub(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", "", clean(str(text)))
@@ -192,16 +208,11 @@ def _owned(args, store, plan, plan_label, say, problems, *, readers, hibernate, 
 
     # sigterm, and sighup (the terminal or tmux pane closing), stop it the way an answer would:
     # cleanly, saved, the hand-off page removed. installed before that page is written.
-    stopped_by: list[int] = []
-
-    def on_signal(signum, _frame):
-        stopped_by.append(signum)
-        session.stop()
-
+    stop_signal = SignalStop()
     old_handlers = {}
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGTERM, signal.SIGHUP):
-            old_handlers[sig] = signal.signal(sig, on_signal)
+            old_handlers[sig] = signal.signal(sig, stop_signal)
     served = False
     try:
         print(server.url, file=out, flush=True)
@@ -217,7 +228,8 @@ def _owned(args, store, plan, plan_label, say, problems, *, readers, hibernate, 
             on_ready(server, session)
         served = True
         outcome = serve(session, server, timeout=args.timeout or None, grace=grace,
-                        poll_interval=poll_interval, clock=clock or time.monotonic)
+                        poll_interval=poll_interval, clock=clock or time.monotonic,
+                        stop_requested=stop_signal.requested)
     finally:
         for sig, old in old_handlers.items():
             signal.signal(sig, old)
@@ -236,4 +248,4 @@ def _owned(args, store, plan, plan_label, say, problems, *, readers, hibernate, 
     say(f"stopped with {left} check(s) left; run again with --resume to carry on")
     if outcome == "interrupted":
         return EXIT_INTERRUPTED
-    return 128 + stopped_by[0] if stopped_by else EXIT_STOPPED
+    return 128 + stop_signal.signals[0] if stop_signal.signals else EXIT_STOPPED

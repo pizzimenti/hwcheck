@@ -185,14 +185,17 @@ which is the easiest way to write one.
 
 ## hibernate and --resume
 
-hibernate runs last. pressing "hibernate now" saves `hibernate pending`, the
-boot id (`/proc/sys/kernel/random/boot_id`) and how long the machine has slept
-since boot to disk, then runs `systemctl hibernate` a second later (not at all
-if the person answers in that second). right before it runs `systemctl`, it
-saves one more mark, `action_started`: a pending hibernate without that mark
-never ran, whatever ended hwcheck in that second (a stop, a crash, or power
-lost), and whatever the machine did afterwards (a suspend overnight, say), so
-it is never taken for a resume. `systemctl` returns as soon as the job is
+hibernate runs last. pressing "hibernate now" saves `hibernate pending` and the
+boot id (`/proc/sys/kernel/random/boot_id`) to disk, then runs
+`systemctl hibernate` a second later (not at all if the person answers in that
+second). right before it runs `systemctl`, it saves one more mark,
+`action_started`, with how long the machine has slept since boot (so a suspend
+in that second doesn't count as time hibernated). if that mark can't be saved
+(a full disk), hibernate doesn't start, and the page says so and offers to try
+again. a pending hibernate without the mark never ran, whatever ended hwcheck
+in that second (a stop, a crash, or power lost), and whatever the machine did
+afterwards (a suspend overnight, say), so it is never taken for a resume; and
+if `systemctl` refuses, hibernate is failed even if a sleep was seen meanwhile. `systemctl` returns as soon as the job is
 queued, so until a sleep has actually been seen the answer can only be
 doesn't work or skip.
 
@@ -207,7 +210,7 @@ doesn't work or skip.
   second): `--resume` finds no `action_started` mark, records that hibernate
   never ran, and offers to try again, whatever the boot id or the time asleep.
 - **the server was stopped but the machine didn't reboot.** `--resume` sees the
-  same boot id and compares the time asleep with what was saved at the press:
+  same boot id and compares the time asleep with what was saved with the mark:
   if the machine slept, it asks whether everything came back; if it didn't,
   hibernate never happened, and the page says so and offers to try again.
 - **`systemctl hibernate` refuses** (no swap, an inhibitor): the page shows its

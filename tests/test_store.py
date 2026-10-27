@@ -84,6 +84,46 @@ class StoreFiles(unittest.TestCase):
                 store.unlock()
                 self.assertEqual(lock_fds(), [])
 
+    def test_a_save_writes_both_files_or_neither(self):
+        from hwchecklib import store as store_module
+        store = Store(scratch_dir(self))
+        store.save({"plan": {"checks": []}, "n": 1}, {"n": 1})
+        old = store.state_path.read_bytes(), store.results_path.read_bytes()
+
+        def leftovers():
+            return sorted(p.name for p in store.dir.iterdir())
+
+        # a full disk while writing the second file
+        real_write = store_module._write_temp
+
+        def results_dont_fit(path, data):
+            if str(path).endswith("results.json"):
+                raise OSError(28, "No space left on device")
+            return real_write(path, data)
+
+        with mock.patch.object(store_module, "_write_temp", results_dont_fit):
+            with self.assertRaises(OSError):
+                store.save({"plan": {"checks": []}, "n": 2}, {"n": 2})
+        self.assertEqual((store.state_path.read_bytes(), store.results_path.read_bytes()), old)
+        self.assertEqual(leftovers(), ["results.json", "state.json"])
+
+        # the second rename failing: the first is undone
+        real_replace = os.replace
+
+        def results_wont_move(src, dst):
+            if str(dst).endswith("results.json"):
+                raise OSError(5, "Input/output error")
+            return real_replace(src, dst)
+
+        with mock.patch.object(store_module.os, "replace", results_wont_move):
+            with self.assertRaises(OSError):
+                store.save({"plan": {"checks": []}, "n": 3}, {"n": 3})
+        self.assertEqual((store.state_path.read_bytes(), store.results_path.read_bytes()), old)
+        self.assertEqual(leftovers(), ["results.json", "state.json"])
+
+        store.save({"plan": {"checks": []}, "n": 4}, {"n": 4})  # and saving still works
+        self.assertEqual(json.loads(store.results_path.read_text())["n"], 4)
+
     def test_corrupt_state(self):
         d = scratch_dir(self)
         store = Store(d)

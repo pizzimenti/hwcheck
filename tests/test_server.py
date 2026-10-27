@@ -714,3 +714,33 @@ class ServeOrder(unittest.TestCase):
         outcome = serve(session, server, timeout=5, grace=0, poll_interval=0.02, clock=clock)
         self.assertEqual(outcome, "timeout")
         self.assertNotIn(web_thread, first_call["threads"])  # nothing could be answered before it
+
+
+@unittest.skipUnless(threading.current_thread() is threading.main_thread(), "signals need the main thread")
+class SignalHandler(unittest.TestCase):
+    def test_the_handler_takes_no_lock_the_main_thread_may_hold(self):
+        d = scratch_dir(self)
+        seen = {}
+
+        def on_ready(server, session):
+            handler = signal.getsignal(signal.SIGHUP)  # the one hwcheck installed
+            # as if the signal landed while the main thread was inside stopping.set() or wait():
+            # hold the stopping event's own lock, and the session's
+            with session.stopping._cond, session.lock:
+                t = threading.Thread(target=handler, args=(signal.SIGHUP, None))
+                t.start()
+                t.join(2)
+                seen["handler_returned"] = not t.is_alive()
+            t.join(10)
+
+        safety = signal.signal(signal.SIGHUP, lambda *_: None)
+        try:
+            code = main(["--plan", str(write_plan(d, MANUAL2)), "--port", "0", "--state-dir", str(d / "state"),
+                         "--timeout", "30"],
+                        readers=fake_readers(), hibernate=FakeHibernate(), out=io.StringIO(), err=io.StringIO(),
+                        on_ready=on_ready, grace=0.05, poll_interval=0.02)
+        finally:
+            signal.signal(signal.SIGHUP, safety)
+        self.assertTrue(seen["handler_returned"])  # it only recorded the signal
+        self.assertEqual(code, 129)  # and the serve loop stopped the run for it
+        self.assertFalse((d / "state" / "open.html").exists())
