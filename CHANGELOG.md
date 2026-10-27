@@ -43,7 +43,10 @@ Each version's heading says whether it was a major, minor or patch change.
   the run behind it was restarted. A private hand-off page (`open.html`, 0600)
   lets a browser be started without the secret on its command line; it is
   removed when the run stops, on SIGTERM (exit 143) and SIGHUP (129) too, and
-  a stale one is removed at the next start.
+  a stale one is removed by the next run that takes the state directory.
+- One run per state directory: a lock held for the whole run (released by the
+  kernel however the process ends). A second hwcheck on the same directory
+  refuses at once and touches nothing of the running one.
 - Detection, the default without `--plan`: the plan is built read-only, as
   the person, from the hardware the machine has (input devices, sound cards,
   cameras, fprintd, iio accelerometers, lid, batteries, display ports,

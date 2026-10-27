@@ -49,7 +49,7 @@ chromium "file://$HOME/.local/state/hwcheck/open.html"
 
 it is written (mode 0600) when the server starts and removed when it stops,
 including on sigterm or sighup; one left by a crash or a fresh boot is removed
-at the next start.
+by the next run that takes the directory's lock.
 pasting the address into a browser that's already open works as well. the
 limits, plainly: the secret is on hwcheck's own output, so anyone who can see
 that terminal has it; and it does nothing against programs running as the same
@@ -68,7 +68,8 @@ user, which can read the state files and that page anyway.
 | `--state-dir D` | where state and results go (default `~/.local/state/hwcheck/`, or `$XDG_STATE_HOME/hwcheck/`). |
 
 it exits by itself after the last answer. exit codes: `0` every check answered,
-`1` couldn't start (port busy, state unreadable), `2` bad plan or usage
+`1` couldn't start (port busy, state unreadable, another hwcheck running with
+the same state directory), `2` bad plan or usage
 (including an unfinished run without `--resume` or `--new`), `3` stopped by
 `--timeout`, `129` sighup (its terminal or tmux pane closed), `130` ctrl-c,
 `143` sigterm. on any of these it saves, removes `open.html` and exits
@@ -82,6 +83,9 @@ written atomically after every answer and every hibernate step:
 - `state.json`: hwcheck's own: the plan, the check on screen, the answers and the
   hibernate state.
 - `open.html`: the private hand-off page above, only while the server runs.
+- `lock`: held for the whole run (the kernel drops it when the process ends,
+  however it ends), so a second hwcheck on the same directory refuses at once
+  and touches nothing: not the running one's `open.html`, state or results.
 
 ## what it checks
 

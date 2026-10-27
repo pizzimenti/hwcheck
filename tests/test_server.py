@@ -622,3 +622,38 @@ class Signals(unittest.TestCase):
                     readers=fake_readers(), out=io.StringIO(), err=io.StringIO())
         self.assertEqual(code, 2)  # nothing to resume, but the dead secret is gone
         self.assertFalse(stale.exists())
+
+
+class TwoInstances(unittest.TestCase):
+    def test_a_second_hwcheck_on_the_same_state_touches_nothing_of_the_first(self):
+        d = scratch_dir(self)
+        plan = write_plan(d, MANUAL2)
+        state_dir = d / "state"
+        first = Run(self, plan, state_dir)
+        first.post("/api/answer", {"id": "a", "answer": "works", "note": "first"})
+        handoff = state_dir / "open.html"
+        page = handoff.read_text(encoding="utf-8")
+        saved = (state_dir / "state.json").read_text(encoding="utf-8")
+        for extra in ([], ["--new"], ["--resume"], ["--resume", "--port", str(first.port)]):
+            err = io.StringIO()
+            code = main(["--plan", str(plan), "--port", "0", "--state-dir", str(state_dir), *extra],
+                        readers=fake_readers(), out=io.StringIO(), err=err)
+            self.assertEqual(code, 1, extra)
+            self.assertIn(f"another hwcheck (pid {os.getpid()}) is running", err.getvalue())
+            self.assertEqual(handoff.read_text(encoding="utf-8"), page, extra)  # its open.html stays
+            self.assertEqual((state_dir / "state.json").read_text(encoding="utf-8"), saved, extra)
+        self.assertEqual(list(state_dir.glob("*-*.json")), [])  # --new archived nothing of the live run
+        status, _ = first.post("/api/answer", {"id": "b", "answer": "works", "note": ""})
+        self.assertEqual(status, 200)  # the first carries on
+        self.assertEqual(first.wait(), 0)
+        self.assertFalse(handoff.exists())
+        # once it has gone, the directory is free again
+        self.assertEqual(Run(self, plan, state_dir, args=["--timeout", "0.1"]).wait(), 3)
+
+    def test_a_lock_file_left_by_a_dead_process_does_not_block(self):
+        d = scratch_dir(self)
+        (d / "state").mkdir()
+        (d / "state" / "lock").write_text("999999\n", encoding="utf-8")  # the kernel lock died with it
+        run = Run(self, write_plan(d, MANUAL2), d / "state", args=["--timeout", "0.1"])
+        self.assertEqual(run.wait(), 3)
+        self.assertEqual((d / "state" / "lock").read_text().strip(), str(os.getpid()))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import html
 import json
 import os
@@ -11,6 +12,10 @@ from pathlib import Path
 
 class StoreError(RuntimeError):
     pass
+
+
+class StoreBusy(StoreError):
+    """another hwcheck holds this state directory."""
 
 
 def default_dir() -> Path:
@@ -64,6 +69,35 @@ class Store:
         self.state_path = self.dir / "state.json"
         self.results_path = self.dir / "results.json"
         self.handoff_path = self.dir / "open.html"
+        self.lock_path = self.dir / "lock"
+        self._lock_fd: int | None = None
+
+    def lock(self) -> None:
+        """hold this directory for this run. the kernel drops the lock when the process ends,
+        however it ends, so a crash never leaves the directory stuck."""
+        self.ensure()
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            try:
+                holder = os.pread(fd, 32, 0).decode("ascii", "replace").strip()
+            except OSError:
+                holder = ""
+            os.close(fd)
+            who = f"another hwcheck (pid {holder})" if holder.isdigit() else "another hwcheck"
+            raise StoreBusy(f"{who} is running with {self.dir}; stop it, or pass another --state-dir") from None
+        except BaseException:
+            os.close(fd)
+            raise
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, f"{os.getpid()}\n".encode("ascii"), 0)
+        self._lock_fd = fd
+
+    def unlock(self) -> None:
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)  # closing it releases the lock; the file stays, harmlessly
+            self._lock_fd = None
 
     def write_handoff(self, url: str) -> Path:
         """a page only the owner can read that forwards to the address with its secret, so a

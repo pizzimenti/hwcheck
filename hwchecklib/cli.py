@@ -125,7 +125,28 @@ def main(argv=None, *, readers=None, hibernate=None, detector=None, out=None, er
             print(f"  {terminal_safe(line)}", file=err, flush=True)
 
     store = Store(args.state_dir)
-    store.remove_handoff()  # one left by a run that crashed or a machine that booted fresh: its secret is dead
+    try:
+        store.lock()  # one run per state directory, from here until this run ends (or dies)
+    except StoreError as exc:
+        say(str(exc))  # another hwcheck owns it: touch nothing of its
+        return EXIT_ERROR
+    except OSError as exc:
+        say(f"can't use {store.dir}: {exc.strerror or exc}")
+        return EXIT_ERROR
+    try:
+        return _owned(args, store, plan, plan_label, say, problems, readers=readers, hibernate=hibernate,
+                      out=out, on_ready=on_ready, grace=grace, poll_interval=poll_interval,
+                      hibernate_delay=hibernate_delay, session_options=session_options)
+    finally:
+        store.unlock()
+
+
+def _owned(args, store, plan, plan_label, say, problems, *, readers, hibernate, out, on_ready, grace,
+           poll_interval, hibernate_delay, session_options) -> int:
+    """the run, once this process holds the state directory's lock."""
+    # no other hwcheck holds this directory, so an open.html here is from a run that's gone
+    # (a crash, or a machine that booted fresh): its secret is dead
+    store.remove_handoff()
     readers = readers or Readers()
     hibernate = hibernate or systemctl_hibernate
     try:
