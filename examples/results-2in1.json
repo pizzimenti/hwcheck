@@ -1,0 +1,444 @@
+{
+  "hwcheck": "0.1.0",
+  "machine": "testbook",
+  "model": "LENOVO 21CD0019US ThinkPad X1 Yoga Gen 7",
+  "boot_id": "6f1d2c3b-4a59-4e8f-9d7c-1b2a3c4d5e6f",
+  "plan": "examples/plan-2in1.json",
+  "started": "2026-10-27T14:02:11-07:00",
+  "updated": "2026-10-27T14:15:35-07:00",
+  "finished": "2026-10-27T14:15:35-07:00",
+  "checks": [
+    {
+      "id": "speakers",
+      "title": "speakers",
+      "kind": "speakers",
+      "answer": "works",
+      "note": "both sides clear",
+      "at": "2026-10-27T14:02:51-07:00",
+      "live": {
+        "source": "page",
+        "tones_played": [
+          "left",
+          "right",
+          "both"
+        ]
+      }
+    },
+    {
+      "id": "microphone",
+      "title": "microphone",
+      "kind": "microphone",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:03:48-07:00",
+      "live": {
+        "source": "page",
+        "device": "Built-in Audio Analog Stereo",
+        "peak_level": 0.71,
+        "recorded": true,
+        "played_back": true
+      }
+    },
+    {
+      "id": "headphones",
+      "title": "headphone jack",
+      "kind": "headphones",
+      "answer": "skip",
+      "note": "no wired headphones to hand",
+      "at": "2026-10-27T14:04:10-07:00",
+      "live": {
+        "source": "page",
+        "tones_played": []
+      }
+    },
+    {
+      "id": "camera",
+      "title": "camera",
+      "kind": "camera",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:04:47-07:00",
+      "live": {
+        "source": "page",
+        "cameras_seen": [
+          "Integrated Camera (1280×720)"
+        ],
+        "cameras_found": 2
+      }
+    },
+    {
+      "id": "touch",
+      "title": "touchscreen",
+      "kind": "touch",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:05:34-07:00",
+      "live": {
+        "source": "page",
+        "max_touches_seen": 10,
+        "reported_max_touch_points": 10,
+        "reached_target": true,
+        "dragged_with": "touch"
+      }
+    },
+    {
+      "id": "pen",
+      "title": "pen",
+      "kind": "pen",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:06:46-07:00",
+      "live": {
+        "source": "page",
+        "pointer_types": [
+          "pen"
+        ],
+        "max_pressure": 0.98,
+        "pressure_levels_seen": 87,
+        "max_tilt_degrees": 52,
+        "eraser_seen": false,
+        "side_button_seen": true,
+        "hover_seen": true
+      }
+    },
+    {
+      "id": "keys",
+      "title": "keyboard",
+      "kind": "keys",
+      "answer": "doesnt-work",
+      "note": "f12 does nothing",
+      "at": "2026-10-27T14:09:18-07:00",
+      "live": {
+        "source": "page",
+        "keys_seen": 84,
+        "presses": 97,
+        "codes": [
+          "KeyA"
+        ]
+      }
+    },
+    {
+      "id": "touchpad",
+      "title": "touchpad",
+      "kind": "manual",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:09:50-07:00",
+      "live": null
+    },
+    {
+      "id": "tablet-mode",
+      "title": "tablet mode",
+      "kind": "tablet-mode",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:10:17-07:00",
+      "live": {
+        "read": true,
+        "source": "/proc/bus/input/devices",
+        "summary": "tablet mode: on",
+        "lines": [
+          "Intel HID switches: tablet mode on"
+        ],
+        "state": {
+          "switches": [
+            {
+              "name": "Intel HID switches",
+              "event": "event14",
+              "on": true
+            }
+          ],
+          "switch_on": true,
+          "plasma": null
+        },
+        "at": "2026-10-27T14:10:07-07:00",
+        "seen": [
+          {
+            "at": "2026-10-27T14:09:50-07:00",
+            "summary": "tablet mode: off"
+          },
+          {
+            "at": "2026-10-27T14:09:58-07:00",
+            "summary": "tablet mode: on"
+          },
+          {
+            "at": "2026-10-27T14:10:03-07:00",
+            "summary": "tablet mode: off"
+          },
+          {
+            "at": "2026-10-27T14:10:07-07:00",
+            "summary": "tablet mode: on"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rotation",
+      "title": "screen rotation",
+      "kind": "rotation",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:10:45-07:00",
+      "live": {
+        "read": true,
+        "source": "monitor-sensor",
+        "summary": "orientation: normal",
+        "lines": [
+          "orientation: normal",
+          "tilt: vertical"
+        ],
+        "state": {
+          "accelerometer": true,
+          "orientation": "normal",
+          "tilt": "vertical"
+        },
+        "at": "2026-10-27T14:10:32-07:00",
+        "seen": [
+          {
+            "at": "2026-10-27T14:10:17-07:00",
+            "summary": "orientation: normal"
+          },
+          {
+            "at": "2026-10-27T14:10:23-07:00",
+            "summary": "orientation: left-up"
+          },
+          {
+            "at": "2026-10-27T14:10:26-07:00",
+            "summary": "orientation: bottom-up"
+          },
+          {
+            "at": "2026-10-27T14:10:29-07:00",
+            "summary": "orientation: right-up"
+          },
+          {
+            "at": "2026-10-27T14:10:32-07:00",
+            "summary": "orientation: normal"
+          }
+        ]
+      }
+    },
+    {
+      "id": "power",
+      "title": "charger",
+      "kind": "power",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:11:09-07:00",
+      "live": {
+        "read": true,
+        "source": "upower -d",
+        "summary": "on mains, BAT0 85% charging",
+        "lines": [
+          "running on: mains",
+          "charger: connected",
+          "BAT0: 85%, charging"
+        ],
+        "state": {
+          "on_battery": false,
+          "charger": true,
+          "batteries": [
+            {
+              "name": "BAT0",
+              "state": "charging",
+              "percentage": 85
+            }
+          ]
+        },
+        "at": "2026-10-27T14:11:01-07:00",
+        "seen": [
+          {
+            "at": "2026-10-27T14:10:47-07:00",
+            "summary": "on mains, BAT0 85% charging"
+          },
+          {
+            "at": "2026-10-27T14:10:52-07:00",
+            "summary": "on battery, BAT0 84% discharging"
+          },
+          {
+            "at": "2026-10-27T14:11:01-07:00",
+            "summary": "on mains, BAT0 85% charging"
+          }
+        ]
+      }
+    },
+    {
+      "id": "lid",
+      "title": "lid",
+      "kind": "lid",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:11:32-07:00",
+      "live": {
+        "read": true,
+        "source": "upower -d",
+        "summary": "lid open",
+        "lines": [
+          "lid open"
+        ],
+        "state": {
+          "present": true,
+          "closed": false
+        },
+        "at": "2026-10-27T14:11:20-07:00",
+        "seen": [
+          {
+            "at": "2026-10-27T14:11:09-07:00",
+            "summary": "lid open"
+          },
+          {
+            "at": "2026-10-27T14:11:14-07:00",
+            "summary": "lid closed"
+          },
+          {
+            "at": "2026-10-27T14:11:20-07:00",
+            "summary": "lid open"
+          }
+        ]
+      }
+    },
+    {
+      "id": "external-display",
+      "title": "external display",
+      "kind": "external-display",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:11:59-07:00",
+      "live": {
+        "read": true,
+        "source": "kscreen-doctor -o",
+        "summary": "external display: HDMI-A-1 on, 1920x1080@60",
+        "lines": [
+          "eDP-1 (built in): connected, on, 2880x1800@120",
+          "HDMI-A-1 (external): connected, on, 1920x1080@60",
+          "DP-1 (external): not connected, off"
+        ],
+        "state": {
+          "outputs": [
+            {
+              "id": "1",
+              "name": "eDP-1",
+              "type": "Panel",
+              "enabled": true,
+              "connected": true,
+              "mode": "2880x1800@120",
+              "geometry": "0,0 1440x900",
+              "builtin": true
+            },
+            {
+              "id": "2",
+              "name": "HDMI-A-1",
+              "type": "HDMI",
+              "enabled": true,
+              "connected": true,
+              "mode": "1920x1080@60",
+              "geometry": "1440,0 1920x1080",
+              "builtin": false
+            },
+            {
+              "id": "3",
+              "name": "DP-1",
+              "type": "DisplayPort",
+              "enabled": false,
+              "connected": false,
+              "mode": null,
+              "geometry": "0,0 0x0",
+              "builtin": false
+            }
+          ],
+          "external_connected": 1
+        },
+        "at": "2026-10-27T14:11:32-07:00",
+        "seen": [
+          {
+            "at": "2026-10-27T14:11:32-07:00",
+            "summary": "external display: HDMI-A-1 on, 1920x1080@60"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bluetooth",
+      "title": "bluetooth",
+      "kind": "bluetooth",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:13:01-07:00",
+      "live": {
+        "read": true,
+        "source": "bluetoothctl",
+        "summary": "2 connected: WH-1000XM4, MX Master 3",
+        "lines": [
+          "controller: testbook (powered on)",
+          "connected: WH-1000XM4 (38:18:4C:00:00:02)",
+          "connected: MX Master 3 (D4:2F:00:00:00:03)"
+        ],
+        "state": {
+          "controller": {
+            "name": "testbook",
+            "powered": true
+          },
+          "connected": [
+            {
+              "address": "38:18:4C:00:00:02",
+              "name": "WH-1000XM4"
+            },
+            {
+              "address": "D4:2F:00:00:00:03",
+              "name": "MX Master 3"
+            }
+          ]
+        },
+        "at": "2026-10-27T14:11:59-07:00",
+        "seen": [
+          {
+            "at": "2026-10-27T14:11:59-07:00",
+            "summary": "2 connected: WH-1000XM4, MX Master 3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "wifi",
+      "title": "wifi",
+      "kind": "manual",
+      "answer": "works",
+      "note": "",
+      "at": "2026-10-27T14:13:18-07:00",
+      "live": null
+    },
+    {
+      "id": "hibernate",
+      "title": "hibernate",
+      "kind": "hibernate",
+      "answer": "works",
+      "note": "came back with wifi and sound",
+      "at": "2026-10-27T14:15:35-07:00",
+      "live": {
+        "source": "hibernate",
+        "phase": "resumed",
+        "resumed": true,
+        "boot_id_before": "6f1d2c3b-4a59-4e8f-9d7c-1b2a3c4d5e6f",
+        "boot_id_after": "6f1d2c3b-4a59-4e8f-9d7c-1b2a3c4d5e6f",
+        "hibernated_at": "2026-10-27T14:13:40-07:00",
+        "slept_seconds": 47,
+        "error": null,
+        "kernel_log": {
+          "this_boot": {
+            "read": true,
+            "source": "journalctl -k -b 0",
+            "lines": [
+              "[    0.412345] testbook kernel: PM: Registering ACPI NVS region [mem 0x7a5a1000-0x7a7fefff] (2482176 bytes)",
+              "[ 1234.567890] testbook kernel: PM: hibernation: hibernation entry",
+              "[ 1235.001234] testbook kernel: PM: hibernation: Preallocating image memory",
+              "[ 1236.789012] testbook kernel: PM: hibernation: Allocated 812345 pages for snapshot",
+              "[ 1236.900000] testbook kernel: PM: hibernation: Creating image:",
+              "[ 1237.100000] testbook kernel: PM: Image restored successfully.",
+              "[ 1237.200000] testbook kernel: PM: hibernation: Basic memory bitmaps freed",
+              "[ 1237.500000] testbook kernel: PM: hibernation: hibernation exit"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
